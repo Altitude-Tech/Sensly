@@ -287,10 +287,12 @@ try:
         MQ7_Gases = [AlchPPM, CH4PPM, LPGPPM, COPPM, H2PPM]
         MQ135_Gases = [COPPM,NH4PPM,CO2PPM,CO2H50HPPM,CH3PPM,CH3_2COPPM]
 
-        # fetch the 
+        # Fetch the current temperatire and humidity
         temperature = sensor.read_temperature()
         humidity = sensor.read_humidity()
 
+        # Correct the RS/R) ratio to account for temperature and humidity,
+        # Then calculate the PPM for each gas
         MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2( MQ2cmd, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
         Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
         
@@ -300,6 +302,7 @@ try:
         MQ135Rs_R0 = MQ135.Corrected_RS_RO( MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
         Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
         
+        # Store the calculated gases in an array
         data.append(MQ7_Gases[3])
         data.append(MQ135_Gases[1])
         data.append(MQ135_Gases[2])
@@ -311,11 +314,13 @@ try:
         data.append(MQ2_Gases[4])
         
         data.append(PM.Get_PMDensity(PMcmd))
-        sleep(30)
-        
 
+        # Add the current array to the csv file 
         with open(datafile, 'a') as f2:
             f2.write(','.join(str(d) for d in data) + '\n')
+            
+        sleep(30)
+        
 
 except KeyboardInterrupt:
     print "Bye"
