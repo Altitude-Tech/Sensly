@@ -148,7 +148,11 @@ class BME280(object):
         self.dig_H5 = self.dig_H5 | (getUChar(cal3, 4) >> 4 & 0x0F)
 
         self.dig_H6 = getChar(cal3, 6)
-
+        '''
+        print 'dig_T1 = {0:d}'.format (self.dig_T1)
+        print 'dig_T2 = {0:d}'.format (self.dig_T2)
+        print 'dig_T3 = {0:d}'.format (self.dig_T3)
+        '''
         '''
         print '0xE4 = {0:2x}'.format (self._device.readU8 (BME280_REGISTER_DIG_H4))
         print '0xE5 = {0:2x}'.format (self._device.readU8 (BME280_REGISTER_DIG_H5))
@@ -204,9 +208,15 @@ class BME280(object):
         var2 = ((UT / 131072.0 - self.dig_T1 / 8192.0) * (
         UT / 131072.0 - self.dig_T1 / 8192.0)) * float(self.dig_T3)
         self.t_fine = int(var1 + var2)
-        temp = (var1 + var2) / 5120.0
+        temp = ((var1 + var2) / 5120.0) - 9.3647 - 1.268279
         return temp
-
+    def read_temperature2(self):
+        UT = float(self.read_raw_temp())
+        var1 = (((UT>>3) - (float(self.dig_T1<<1))) * float(self.dig_T2)) >> 11
+        var2 = (((((UT>>4) - (float(self.dig_T1))) * ((UT>>4)-float(self.dig_T1))) >> 12) * float(self.dig_T3)) >> 14
+        t_fine = var1 + var2
+        temp = (float((t_fine * 5 + 128) >> 8))/100
+        return temp
     def read_pressure(self):
         """Gets the compensated pressure in Pascals."""
         adc = self.read_raw_pressure()
@@ -214,8 +224,7 @@ class BME280(object):
         var2 = var1 * var1 * self.dig_P6 / 32768.0
         var2 = var2 + var1 * self.dig_P5 * 2.0
         var2 = var2 / 4.0 + self.dig_P4 * 65536.0
-        var1 = (
-               self.dig_P3 * var1 * var1 / 524288.0 + self.dig_P2 * var1) / 524288.0
+        var1 = (self.dig_P3 * var1 * var1 / 524288.0 + self.dig_P2 * var1) / 524288.0
         var1 = (1.0 + var1 / 32768.0) * self.dig_P1
         if var1 == 0:
             return 0
