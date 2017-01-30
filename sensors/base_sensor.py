@@ -28,35 +28,15 @@ class BaseSensor:
 	#
 	##
 	_device = None
-
-	##
-	#
-	##
-	_r0 = None
-
-	##
-	#
-	##
 	_rs = None
-
-	##
-	#
-	##
-	_rs_air = None
-
-	##
-	#
-	##
 	_rs_r0_ratio = None
-
-	##
-	#
-	##
 	_adc_value = None
 
 	##
 	#
 	##
+	_r0 = None
+	_rs_air = None
 	_cmd = None
 
 	def __init__(self, no_device=False):
@@ -84,10 +64,11 @@ class BaseSensor:
 
 		self._adc_value = (data1 << 8) | data2
 
-	def calc_raw_rs_r0_ratio(self):
+	def raw_rs_r0_ratio(self):
 		"""
 		"""
 		self._rs_r0_ratio = self.rs / self._r0
+		return self._rs_r0_ratio
 
 	def calc_rs_r0_ratio(self, temperature, humidity):
 		"""
@@ -111,24 +92,30 @@ class BaseSensor:
 	def adc_value(self, value):
 		"""
 		"""
-		pass
+		self._adc_value
 
-	@property
-	def raw_rs_r0_ratio(self):
+	def __ppm(self, gradient, intercept):
 		"""
 		"""
-		self.__calc_rs_r0_ratio()
-		return self._rs_r0_ratio
-
-	@property
-	def rs_r0_ratio(self):
-		"""
-		"""
-		self.correct_rs_r0_ratio()
-
-		return self._rs_r0_ratio
+		return pow(10, (gradient * log10(self._rs_r0_ratio)) + intercept)
 
 	def gases(self):
 		"""
 		"""
-		pass
+		for k, v in self._gas_config.items():
+			data = {}
+
+			# check the RsR0 ratio is within range for a given gas
+			if v['rs_r0_max'] < self._rs_r0_ratio:
+				continue
+
+			if v['rs_r0_min'] > self._rs_r0_ratio:
+				continue
+
+			data['ppm'] = self.__ppm(v['gradient'], v['intercept'])
+			data['name'] = v['name']
+			data['id'] = k
+
+			yield data
+
+
