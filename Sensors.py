@@ -94,7 +94,7 @@ class Sensor:
         rsro_ambtemp_33RH = (Const_33[0]*pow(temperature,3)) + (Const_33[1]*pow(temperature,2)) + (Const_33[2]*temperature) + Const_33[3]
         rsro_ambtemp_85RH = (Const_85[0]*pow(temperature,3)) + (Const_85[1]*pow(temperature,2)) + (Const_85[2]*temperature) + Const_85[3]
         rsro_ambtemp_65RH = ((65.0-33.0)/(85.0-65.0)*(rsro_ambtemp_85RH-rsro_ambtemp_33RH)+rsro_ambtemp_33RH)*1.102
-        if humidity > 65:
+        if humidity < 65:
             rsro_ambtemp_ambRH = (humidity-33)/(65-33)*(rsro_ambtemp_65RH-rsro_ambtemp_33RH)+rsro_ambtemp_33RH
         else:
             rsro_ambtemp_ambRH = (humidity-65)/(85-65)*(rsro_ambtemp_85RH-rsro_ambtemp_65RH)+rsro_ambtemp_65RH
@@ -110,7 +110,7 @@ class Sensor:
         rsro_ambtemp_60RH = (Const_60[0]*pow(temperature,3)) + (Const_60[1]*pow(temperature,2)) + (Const_60[2]*temperature) + Const_60[3]
         rsro_ambtemp_85RH = (Const_85[0]*pow(temperature,3)) + (Const_85[1]*pow(temperature,2)) + (Const_85[2]*temperature) + Const_85[3]
         
-        if humidity > 60:
+        if humidity < 60:
             rsro_ambtemp_ambRH = (humidity-30)/(60-30)*(rsro_ambtemp_60RH-rsro_ambtemp_30RH)+rsro_ambtemp_30RH
         else:
             rsro_ambtemp_ambRH = (humidity-60)/(85-60)*(rsro_ambtemp_85RH-rsro_ambtemp_60RH)+rsro_ambtemp_60RH
