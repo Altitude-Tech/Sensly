@@ -4,6 +4,13 @@ from time import *
 import RPi.GPIO as GPIO
 from Sensors import Sensor, Gas
 from bme_combo import *
+import logging
+import sys
+
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+logging.debug("start of script")
+logging.debug("debug test this is logged as debug level")
+
 
 def Reset():
     GPIO.setmode(GPIO.BCM) ## Use BCM numbering
