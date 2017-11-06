@@ -4,28 +4,18 @@ from time import *
 import RPi.GPIO as GPIO
 from Sensors import Sensor, Gas
 from bme_combo import *
-
-def Reset():
-    GPIO.setmode(GPIO.BCM) ## Use BCM numbering
-    GPIO.setup(23, GPIO.OUT)
-
-    # Reset Sensly HAT
-    GPIO.output(23, False) ## Set GPIO Pin 23 to low
-    time.sleep(0.5)
-    GPIO.output(23, True) ## Set GPIO Pin 23 to low
-    # Clean up the GPIO pins 
-    GPIO.cleanup()
+import logging
+import sys
 
 
+SENSLY_WARMUP_TIME = 1 # Seconds to wait for warmup (AltitudeTech 600)
 
 # Sensly Constants 
 R0 = [3120.5010, 1258.8822, 2786.3375]      # MQ2, MQ7, MQ135 R0 resistance (needed for PPM calculation).
                                             # Found by placing the Sensor in a clean air environment and running the calibration script
 RSAir = [9.5,27,3.62]                       # Sensor RS/R0 ratio in clean air
 
-
 LED = [0xFF, 0x00, 0x00]                    # Set LED to Red 
-
 
 MQ2 = Sensor('MQ2',R0[0],RSAir[0])          # name, Calibrated R0 value, RSAir value 
 MQ7 = Sensor('MQ7',R0[1],RSAir[1])
@@ -43,8 +33,7 @@ MQ7_t_85H = [-0.00000481,0.0003916,-0.01267189,0.99930744]
 MQ135_t_33H = [-0.00000042,0.00036988,-0.02723828,1.40020563]
 MQ135_t_85H = [-0.0000002,0.00028254,-0.02388492,1.27309524]
 
-#Initalise the gases
-
+# Gases constants
 COPPM = 0
 NH4PPM = 0
 CO2PPM = 0
@@ -79,8 +68,25 @@ MQ135_Acet = Gas('MQ135_Acetone', 0.1790, -0.2328, -3.1878, 1.577, 100, LED)
 
 sensor = BME280(mode=BME280_OSAMPLE_8)
 
-#functions
-   
+
+# Initialises Logger
+def initLogger():
+	logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+
+# Reseting the HAT
+def ResetGPIO():
+    GPIO.setmode(GPIO.BCM) ## Use BCM numbering
+    GPIO.setup(23, GPIO.OUT)
+    # Reset Sensly HAT
+    GPIO.output(23, False) ## Set GPIO Pin 23 to low
+    time.sleep(0.5)
+    GPIO.output(23, True) ## Set GPIO Pin 23 to low
+    time.sleep(0.5)
+    # Clean up the GPIO pins 
+#    GPIO.cleanup() # unusefull
+
+
+  
 '''
 This Function checks the RS/R0 value to select which gas is being detected
 '''
@@ -141,6 +147,7 @@ def Get_MQ2PPM(MQ2Rs_R0, Gases = []):
         Gases[3] = 0
         Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
         Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
+
 '''
 This Function checks the RS/R0 value to select which gas is being detected
 '''
@@ -187,6 +194,7 @@ def Get_MQ7PPM(MQ7Rs_R0, Gases = []):
         Gases[2] = 0
         Gases[3] = 0
         Gases[4] = MQ7_H2.Get_PPM(MQ7Rs_R0)
+
 '''
 This Function checks the RS/R0 value to select which gas is being detected
 '''           
@@ -249,21 +257,24 @@ def Get_MQ135PPM(MQ135Rs_R0, Gases = []):
         Gases[5] = MQ135_Acet.Get_PPM(MQ135Rs_R0)
         
         
-Reset()
+# Initialize
+initLogger()
+ResetGPIO()
 datafile = time.strftime('./Sensly_%d-%m-%Y_%H_%M_%S.csv')
-
+logging.debug("Writting data to " + str(datafile))
 with open(datafile, 'w+') as f1:
     f1.write('Time, Carbon Monoxide PPM, Ammonia PPM, Carbon Dioxide PPM, Methly PPM, Acetone PPM, Methane PPM, LPG PPM, Hydrogen PPM, Propane PPM, PM10 \n')
 
 try:
-    # Set commands for getting data from snesors 
+    # Set commands for getting data from sensors 
     MQ2cmd = 0x01
     MQ7cmd = 0x02
     MQ135cmd = 0x03
     PMcmd = 0x04
-    print " Sensly is warming up please wait for 15 mins"
-    sleep(900)
-    print " Heating Completed"
+    logging.info("Sensly is warming up please wait for " + str(SENSLY_WARMUP_TIME) + " seconds")
+    sleep(SENSLY_WARMUP_TIME)
+    logging.info("Heating Completed")
+    logging.info("Enterring to a True loop, Ctrl+c to stop it...")
     while True:
         data = []
         # Get current time and add data array
@@ -287,18 +298,21 @@ try:
         MQ7_Gases = [AlchPPM, CH4PPM, LPGPPM, COPPM, H2PPM]
         MQ135_Gases = [COPPM,NH4PPM,CO2PPM,CO2H50HPPM,CH3PPM,CH3_2COPPM]
 
-        # Fetch the current temperatire and humidity
+        # Fetch the current temperature and humidity
         temperature = sensor.read_temperature()
         humidity = sensor.read_humidity()
 
         # Correct the RS/R) ratio to account for temperature and humidity,
         # Then calculate the PPM for each gas
+	ResetGPIO() 
         MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2( MQ2cmd, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
         Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
         
+	ResetGPIO() 
         MQ7Rs_R0 = MQ7.Corrected_RS_RO( MQ7cmd, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
         Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
         
+	ResetGPIO() 
         MQ135Rs_R0 = MQ135.Corrected_RS_RO( MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
         Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
         
@@ -312,19 +326,25 @@ try:
         data.append(MQ2_Gases[5])
         data.append(MQ2_Gases[3])
         data.append(MQ2_Gases[4])
-        
-        data.append(PM.Get_PMDensity(PMcmd))
+        ResetGPIO() 
+	logging.debug("Trying to get informations from particules meter")
+	pmData = PM.Get_PMDensity(PMcmd))
+        data.append(pmData)
 
         # Add the current array to the csv file 
         with open(datafile, 'a') as f2:
-            f2.write(','.join(str(d) for d in data) + '\n')
-            
+	    toWrite = ','.join(str(d) for d in data) + '\n'
+            f2.write(toWrite)
+            logging.debug("Writting to datafile:" + toWrite) 
+
+	logging.debug("waiting another 30 seconds till next data getting")
         sleep(30)
         
 
 except KeyboardInterrupt:
     print "Bye"
-    
+finally:
+    GPIO.cleanup()
 
     
     
