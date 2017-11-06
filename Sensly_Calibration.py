@@ -1,3 +1,4 @@
+# File Description: puts into Sensly_Calibration_<timeStamp>.csv values from Sensors
 from time import *
 
 import RPi.GPIO as GPIO
@@ -21,6 +22,7 @@ ADCMax = 4095
 
 
 def initialize():
+	"""Sets the logging variable & Resets GPIO"""
 	logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
 	# Set up GPIO ports
 	GPIO.setmode(GPIO.BCM)      # Use BCM numbering
@@ -32,7 +34,8 @@ def initialize():
 	# Clean up GPIO 
 	GPIO.cleanup()
 
-def gpio_reset():
+def gpioReset():
+	"""Resets GPIO & HAT"""
 	GPIO.setmode(GPIO.BCM)      # Use BCM numbering
 	GPIO.setup(23, GPIO.OUT)
 	# Reset Sensly HAT
@@ -60,6 +63,7 @@ try:
     logging.info("Waiting for " + str(SAMPLES_COUNT_FOR_VALUES_TO_STORE) + " seconds the HAT to be @ working temperature...")
     sleep(SECONDS_TO_WAIT_TILL_HAT_IS_HOT) # 600 seconds to get the HAT in Working temperature 
     logging.info("Enterring to a True loop, Ctrl+c to stop it...")
+    callIndex = 0
     while True:
         data = []
         # Get current time and add data array
@@ -73,21 +77,23 @@ try:
         logging.debug("Starting calibration for an average of " + str(SAMPLES_COUNT_FOR_VALUES_TO_STORE))
         # Run calibration   
         for x in range(SAMPLES_COUNT_FOR_VALUES_TO_STORE):
-	    gpio_reset()
+	    callIndex = callIndex + 1
+	    gpioReset()
 	    logging.debug("Trying to get Data from MQ2 Sensor 1")
             AvRs_MQ2 = AvRs_MQ2 + MQ2.Get_RS(MQ2cmd)
-            logging.debug("Got first data AvRs_MQ2:"+str(AvRs_MQ2))
+            logging.debug("Got first data AvRs_MQ2:" + str(AvRs_MQ2))
             sleep(0.01)
-	    gpio_reset()
+	    gpioReset()
 	    logging.debug("Trying to get Data from MQ7 Sensor 2")
             AvRs_MQ7 = AvRs_MQ7 + MQ7.Get_RS(MQ7cmd)
-            logging.debug("Got data AvRs_MQ7:"+str(AvRs_MQ7))
+            logging.debug("Got data AvRs_MQ7:" + str(AvRs_MQ7))
             sleep(0.01)
-	    gpio_reset()
+	    gpioReset()
 	    logging.debug("Trying to get Data from MQ135 Sensor 3")
             AvRs_MQ135 = AvRs_MQ135 + MQ135.Get_RS(MQ135cmd)
-            logging.debug("Got data MQ135:"+str(AvRs_MQ135))
+            logging.debug("Got data MQ135:" + str(AvRs_MQ135))
             sleep(0.01)
+	    logging.debug("----> Called " + str(callIndex) + " times")
 
 	# Setting all averages
         AvRs_MQ2 = AvRs_MQ2/SAMPLES_COUNT_FOR_VALUES_TO_STORE
