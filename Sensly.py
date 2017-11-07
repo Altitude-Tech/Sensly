@@ -68,7 +68,7 @@ MQ135_Methly = Gas('MQ135_Methly', 0.2068, -0.1938, -3.2581, 1.6759, 1000, LED)
 MQ135_Acet = Gas('MQ135_Acetone', 0.1790, -0.2328, -3.1878, 1.577, 100, LED)
 
 # Temperature, Humidity & barometric Pressure Sensor sensor declaration
-bME280_Sensor = Adafruit_BME280.BME280(t_mode=Adafruit_BME280.BME280_OSAMPLE_8, h_mode=Adafruit_BME280.BME280_OSAMPLE_8, address=0x76) # Sometimes Crash with a connection timeout
+bME280_Sensor = None 
 
 
 # Initialises Logger
@@ -258,7 +258,7 @@ initLogger()
 ResetGPIO()
 datafile = time.strftime(DATA_FILE_NAME)
 logging.debug("Writting data to " + str(datafile))
-
+bME280_Sensor = Adafruit_BME280.BME280(t_mode=Adafruit_BME280.BME280_OSAMPLE_8, h_mode=Adafruit_BME280.BME280_OSAMPLE_8, address=0x76) # Sometimes Crash with a connection timeout
 # Set commands for getting data from sensors 
 MQ2cmd = 0x01
 MQ7cmd = 0x02
@@ -297,7 +297,9 @@ try:
 
         # Fetch the current temperature and humidity
         temperature = bME280_Sensor.read_temperature()
+	logging.debug("BME280 read temperature is (Carefull, hat is hot so temp is not corrected by default)" + str(temperature))
         humidity = bME280_Sensor.read_humidity()
+	logging.debug("BME280 read humidity is (Carefull, hat is hot so temp is not corrected by default)" + str(humidity))
 
         # Correct the RS/R) ratio to account for temperature and humidity,
         # Then calculate the PPM for each gas
