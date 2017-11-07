@@ -1,14 +1,15 @@
 import smbus 
-from time import *
+import time 
 
 import RPi.GPIO as GPIO
 from Sensors import Sensor, Gas
-from bme_combo import *
+import Adafruit_BME280
 import logging
 import sys
 
 
 SENSLY_WARMUP_TIME = 1 # Seconds to wait for warmup (AltitudeTech 600)
+DATA_FILE_NAME = './Sensly_%d-%m-%Y_%H_%M_%S.csv' # File name where data are written
 
 # Sensly Constants 
 R0 = [3120.5010, 1258.8822, 2786.3375]      # MQ2, MQ7, MQ135 R0 resistance (needed for PPM calculation).
@@ -20,7 +21,7 @@ LED = [0xFF, 0x00, 0x00]                    # Set LED to Red
 MQ2 = Sensor('MQ2',R0[0],RSAir[0])          # name, Calibrated R0 value, RSAir value 
 MQ7 = Sensor('MQ7',R0[1],RSAir[1])
 MQ135 = Sensor('MQ135',R0[2],RSAir[2])
-PM = Sensor('PM',0,0)
+opticalDustSensor = Sensor('PM',0,0)
 
 # Constants for temperature and humididty correction
 MQ2_t_30H = [-0.00000072,0.00006753,-0.01530561,1.5594955]
@@ -66,7 +67,8 @@ MQ135_Ethan = Gas('MQ135_Ethanol', 0.2810, -0.1337, -3.1616, 1.8939, 1000, LED)
 MQ135_Methly = Gas('MQ135_Methly', 0.2068, -0.1938, -3.2581, 1.6759, 1000, LED)
 MQ135_Acet = Gas('MQ135_Acetone', 0.1790, -0.2328, -3.1878, 1.577, 100, LED)
 
-sensor = BME280(mode=BME280_OSAMPLE_8)
+# Temperature, Humidity & barometric Pressure Sensor sensor declaration
+bME280_Sensor = Adafruit_BME280.BME280(t_mode=Adafruit_BME280.BME280_OSAMPLE_8, h_mode=Adafruit_BME280.BME280_OSAMPLE_8, address=0x76) # Sometimes Crash with a connection timeout
 
 
 # Initialises Logger
@@ -87,10 +89,8 @@ def ResetGPIO():
 
 
   
-'''
-This Function checks the RS/R0 value to select which gas is being detected
-'''
 def Get_MQ2PPM(MQ2Rs_R0, Gases = []):
+    """This Function checks the RS/R0 value to select which gas is being detected"""
     if MQ2Rs_R0 <= 5.2 and MQ2Rs_R0 > 3:
         Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
         Gases[1] = 0
@@ -148,10 +148,8 @@ def Get_MQ2PPM(MQ2Rs_R0, Gases = []):
         Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
         Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
 
-'''
-This Function checks the RS/R0 value to select which gas is being detected
-'''
 def Get_MQ7PPM(MQ7Rs_R0, Gases = []):
+    """This Function checks the RS/R0 value to select which gas is being detected"""
     if MQ7Rs_R0 <= 17 and MQ7Rs_R0 > 15:
         Gases[0] = MQ7_Alch.Get_PPM(MQ7Rs_R0)
         Gases[1] = 0
@@ -195,10 +193,8 @@ def Get_MQ7PPM(MQ7Rs_R0, Gases = []):
         Gases[3] = 0
         Gases[4] = MQ7_H2.Get_PPM(MQ7Rs_R0)
 
-'''
-This Function checks the RS/R0 value to select which gas is being detected
-'''           
 def Get_MQ135PPM(MQ135Rs_R0, Gases = []):
+    """This Function checks the RS/R0 value to select which gas is being detected"""
     if MQ135Rs_R0 <= 2.85 and MQ135Rs_R0 > 2.59:
         Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
         Gases[1] = 0
@@ -260,21 +256,22 @@ def Get_MQ135PPM(MQ135Rs_R0, Gases = []):
 # Initialize
 initLogger()
 ResetGPIO()
-datafile = time.strftime('./Sensly_%d-%m-%Y_%H_%M_%S.csv')
+datafile = time.strftime(DATA_FILE_NAME)
 logging.debug("Writting data to " + str(datafile))
+
+# Set commands for getting data from sensors 
+MQ2cmd = 0x01
+MQ7cmd = 0x02
+MQ135cmd = 0x03
+PMcmd = 0x04
+logging.info("Sensly is warming up please wait for " + str(SENSLY_WARMUP_TIME) + " seconds")
+time.sleep(SENSLY_WARMUP_TIME)
+logging.info("Heating Completed")
+logging.info("Enterring to a True loop, Ctrl+c to stop it...")
 with open(datafile, 'w+') as f1:
     f1.write('Time, Carbon Monoxide PPM, Ammonia PPM, Carbon Dioxide PPM, Methly PPM, Acetone PPM, Methane PPM, LPG PPM, Hydrogen PPM, Propane PPM, PM10 \n')
 
 try:
-    # Set commands for getting data from sensors 
-    MQ2cmd = 0x01
-    MQ7cmd = 0x02
-    MQ135cmd = 0x03
-    PMcmd = 0x04
-    logging.info("Sensly is warming up please wait for " + str(SENSLY_WARMUP_TIME) + " seconds")
-    sleep(SENSLY_WARMUP_TIME)
-    logging.info("Heating Completed")
-    logging.info("Enterring to a True loop, Ctrl+c to stop it...")
     while True:
         data = []
         # Get current time and add data array
@@ -299,8 +296,8 @@ try:
         MQ135_Gases = [COPPM,NH4PPM,CO2PPM,CO2H50HPPM,CH3PPM,CH3_2COPPM]
 
         # Fetch the current temperature and humidity
-        temperature = sensor.read_temperature()
-        humidity = sensor.read_humidity()
+        temperature = bME280_Sensor.read_temperature()
+        humidity = bME280_Sensor.read_humidity()
 
         # Correct the RS/R) ratio to account for temperature and humidity,
         # Then calculate the PPM for each gas
@@ -328,7 +325,7 @@ try:
         data.append(MQ2_Gases[4])
         ResetGPIO() 
 	logging.debug("Trying to get informations from particules meter")
-	pmData = PM.Get_PMDensity(PMcmd))
+	pmData =opticalDustSensor.Get_PMDensity(PMcmd)
         data.append(pmData)
 
         # Add the current array to the csv file 
@@ -339,11 +336,10 @@ try:
 
 	logging.debug("waiting another 30 seconds till next data getting")
         sleep(30)
-        
-
 except KeyboardInterrupt:
-    print "Bye"
+    print "You pressed Ctrl+C, Bye"
 finally:
+    logging.info("You can check your data into " + DATA_FILE_NAME) 
     GPIO.cleanup()
 
     
