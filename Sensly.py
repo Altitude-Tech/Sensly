@@ -66,7 +66,6 @@ MQ135_Ethan = Gas('MQ135_Ethanol', 0.2810, -0.1337, -3.1616, 1.8939, 1000, LED)
 MQ135_Methly = Gas('MQ135_Methly', 0.2068, -0.1938, -3.2581, 1.6759, 1000, LED)
 MQ135_Acet = Gas('MQ135_Acetone', 0.1790, -0.2328, -3.1878, 1.577, 100, LED)
 
-sensor = BME280(mode=BME280_OSAMPLE_8)
 
 
 # Initialises Logger
@@ -86,6 +85,8 @@ def ResetGPIO():
 #    GPIO.cleanup() # unusefull
 
 
+tempHumSensor = BME280(mode=BME280_OSAMPLE_8)
+ResetGPIO()
   
 '''
 This Function checks the RS/R0 value to select which gas is being detected
@@ -299,8 +300,8 @@ try:
         MQ135_Gases = [COPPM,NH4PPM,CO2PPM,CO2H50HPPM,CH3PPM,CH3_2COPPM]
 
         # Fetch the current temperature and humidity
-        temperature = sensor.read_temperature()
-        humidity = sensor.read_humidity()
+        temperature = tempHumSensor.read_temperature()
+        humidity = tempHumSensor.read_humidity()
 
         # Correct the RS/R) ratio to account for temperature and humidity,
         # Then calculate the PPM for each gas
@@ -326,9 +327,10 @@ try:
         data.append(MQ2_Gases[5])
         data.append(MQ2_Gases[3])
         data.append(MQ2_Gases[4])
-        ResetGPIO() 
+
 	logging.debug("Trying to get informations from particules meter")
-	pmData = PM.Get_PMDensity(PMcmd))
+        ResetGPIO() 
+	pmData = PM.Get_PMDensity(PMcmd)
         data.append(pmData)
 
         # Add the current array to the csv file 

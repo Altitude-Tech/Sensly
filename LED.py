@@ -1,0 +1,4 @@
+#Class LED
+class LED:
+
+	RED = [0xFF, 0x00, 0x00]
