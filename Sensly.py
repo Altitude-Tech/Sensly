@@ -114,6 +114,8 @@ def ResetGPIO():
 #    GPIO.cleanup() # unusefull
 
 
+tempHumSensor = BME280(mode=BME280_OSAMPLE_8)
+ResetGPIO()
   
 def Get_MQ2PPM(MQ2Rs_R0, Gases = []):
     """This Function checks the RS/R0 value to select which gas is being detected"""
@@ -283,89 +285,82 @@ def save_read_data_to_csv():
 	"""Writes read data from sensors into csv files"""
 	global COPPM, NH4, CO2PPM, CO2H50HPPM, CH3PPM, CH3_2COPPM, AlchPPM, CH4PPM, LPGPPM, H2PPM, PropPPM 
 
-	#Warmum otherwise data are not the same, seems that after 10 minutes the data become more stables
-	logging.info("Sensly is warming up please wait for " + str(SENSLY_WARMUP_TIME) + " seconds")
-	time.sleep(SENSLY_WARMUP_TIME)
-	logging.info("Warmup completed")
-	#CSV File header
-	datafile = time.strftime(DATA_FILE_NAME)
-	directory = os.path.dirname(DATA_FILE_NAME)
-	if not os.path.exists(directory):
-		os.makedirs(directory)
-	logging.debug("Writting data to " + str(datafile))
-	with open(datafile, 'w+') as f1:
-		f1.write(DATA_FILE_HEADER + '\n')
-
 	try:
-		logging.info("Enterring to a True loop, Ctrl+c to stop it...")
-		while True:
-			data = []
-			# Get current time and add data array
-			data.append(time.strftime('%H:%M:%S'))
+	    # Set commands for getting data from sensors 
+	    MQ2cmd = 0x01
+	    MQ7cmd = 0x02
+	    MQ135cmd = 0x03
+	    PMcmd = 0x04
+	    logging.info("Sensly is warming up please wait for " + str(SENSLY_WARMUP_TIME) + " seconds")
+	    sleep(SENSLY_WARMUP_TIME)
+	    logging.info("Heating Completed")
+	    logging.info("Enterring to a True loop, Ctrl+c to stop it...")
+	    while True:
+		data = []
+		# Get current time and add data array
+		data.append(time.strftime('%H:%M:%S'))
 
-			# Reset the PPM value 
-			COPPM = 0
-			NH4PPM = 0
-			CO2PPM = 0
-			CO2H50HPPM = 0
-			CH3PPM = 0
-			CH3_2COPPM = 0
-			AlchPPM = 0
-			CH4PPM = 0
-			LPGPPM = 0
-			H2PPM = 0
-			PropPPM = 0
+		# Reset the PPM value 
+		COPPM = 0
+		NH4PPM = 0
+		CO2PPM = 0
+		CO2H50HPPM = 0
+		CH3PPM = 0
+		CH3_2COPPM = 0
+		AlchPPM = 0
+		CH4PPM = 0
+		LPGPPM = 0
+		H2PPM = 0
+		PropPPM = 0
 
-			# Inialise the gases in an array 
-			MQ2_Gases = [COPPM, CH4PPM, AlchPPM, H2PPM, PropPPM, LPGPPM]
-			MQ7_Gases = [AlchPPM, CH4PPM, LPGPPM, COPPM, H2PPM]
-			MQ135_Gases = [COPPM, NH4PPM, CO2PPM, CO2H50HPPM, CH3PPM, CH3_2COPPM]
+		# Inialise the gases in an array 
+		MQ2_Gases = [COPPM, CH4PPM, AlchPPM, H2PPM, PropPPM,LPGPPM]
+		MQ7_Gases = [AlchPPM, CH4PPM, LPGPPM, COPPM, H2PPM]
+		MQ135_Gases = [COPPM,NH4PPM,CO2PPM,CO2H50HPPM,CH3PPM,CH3_2COPPM]
 
-			# Fetch the current temperature and humidity
-			temperature = bME280_Sensor.read_temperature()
-			logging.debug("BME280 read temperature is (Carefull, hat is hot so temp is not corrected by default):" + str(temperature))
-			humidity = bME280_Sensor.read_humidity()
-			logging.debug("BME280 read humidity is (Carefull, hat is hot so temp is not corrected by default):" + str(humidity))
+		# Fetch the current temperature and humidity
+		temperature = tempHumSensor.read_temperature()
+		humidity = tempHumSensor.read_humidity()
 
-			# Correct the RS/R0 ratio to account for temperature and humidity,
-			# Then calculate the PPM for each gas
-			MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2( MQ2_INDEX, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
-			Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
+		# Correct the RS/R) ratio to account for temperature and humidity,
+		# Then calculate the PPM for each gas
+		ResetGPIO() 
+		MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2( MQ2cmd, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
+		Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
+		
+		ResetGPIO() 
+		MQ7Rs_R0 = MQ7.Corrected_RS_RO( MQ7cmd, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
+		Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
+		
+		ResetGPIO() 
+		MQ135Rs_R0 = MQ135.Corrected_RS_RO( MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
+		Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
+		
+		# Store the calculated gases in an array
+		data.append(MQ7_Gases[3])
+		data.append(MQ135_Gases[1])
+		data.append(MQ135_Gases[2])
+		data.append(MQ135_Gases[4])
+		data.append(MQ135_Gases[5])
+		data.append(MQ2_Gases[1])
+		data.append(MQ2_Gases[5])
+		data.append(MQ2_Gases[3])
+		data.append(MQ2_Gases[4])
 
-			ResetGPIO() 
-			MQ7Rs_R0 = MQ7.Corrected_RS_RO( MQ7_INDEX, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
-			Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
+		logging.debug("Trying to get informations from particules meter")
+		ResetGPIO() 
+		pmData = PM.Get_PMDensity(PMcmd)
+		data.append(pmData)
 
-			ResetGPIO() 
-			MQ135Rs_R0 = MQ135.Corrected_RS_RO( MQ135_INDEX, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
-			Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
+		# Add the current array to the csv file 
+		with open(datafile, 'a') as f2:
+		    toWrite = ','.join(str(d) for d in data) + '\n'
+		    f2.write(toWrite)
+		    logging.debug("Writting to datafile:" + toWrite) 
 
-			logging.debug("Gases are followings MQ2 {}\n MQ7 {}\n MQ135 {}\n".format(MQ2_Gases, MQ7_Gases, MQ135_Gases))
-			# Store the calculated gases in an array
-			data.append(MQ7_Gases[3])
-			data.append(MQ135_Gases[1])
-			data.append(MQ135_Gases[2])
-			data.append(MQ135_Gases[4])
-			data.append(MQ135_Gases[5])
-			data.append(MQ2_Gases[1])
-			data.append(MQ2_Gases[5])
-			data.append(MQ2_Gases[3])
-			data.append(MQ2_Gases[4])
-
-			# Getting informations from optical Dust Sensor
-			ResetGPIO() 
-			logging.debug("Getting informations from Optical Dust Sensor")
-			pmData = opticalDustSensor.Get_PMDensity(Sensor.OPTICAL_DUST_SENSOR_CMD)
-			data.append(pmData)
-
-			# Add the current array to the csv file 
-			with open(datafile, 'a') as f2:
-				toWrite = ','.join(str(d) for d in data) + '\n'
-				f2.write(toWrite)
-				logging.debug("Writting to datafile:" + toWrite + " " + DATA_FILE_HEADER) 
-
-			logging.debug("-------- Waiting for another " + str(SAMPLING_SECONDS) + " seconds till next data getting")
-			time.sleep(SAMPLING_SECONDS)
+		logging.debug("waiting another 30 seconds till next data getting")
+		sleep(30)
+	
 	except KeyboardInterrupt:
 		logging.info("You pressed Ctrl+C, Bye")
 	finally:
