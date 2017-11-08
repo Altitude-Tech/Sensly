@@ -7,7 +7,7 @@ from math import log10
 import logging
 import sys
 
-# Import installed modules need for script
+# Import installed modules needed for script
 import smbus as I2C
 
 # Define the i2c address for the Sensly HAT
