@@ -6,6 +6,7 @@ from Sensors import Sensor, Gas
 from bme_combo import *
 import logging
 import sys
+import os
 
 # Sensly Constants 
 R0 = [0,0,0]
@@ -47,8 +48,13 @@ def gpioReset():
 
 
 initialize()
-datafile = time.strftime('./Sensly_Calibration_%d-%m-%Y_%H_%M_%S.csv')
-logging.debug("Writting data to " + datafile)
+DATA_FILE_NAME = './sampleData/Sensly_Calibration_%d-%m-%Y_%H_%M_%S.csv'
+datafile = time.strftime(DATA_FILE_NAME)
+directory = os.path.dirname(DATA_FILE_NAME)
+if not os.path.exists(directory):
+	os.makedirs(directory)
+
+logging.debug("Writting data to {} ".format(DATA_FILE_NAME))
 with open(datafile, 'w+') as f1:
     f1.write('Time, MQ2RZero, MQ7RZero, MQ135RZero\n')
 try:
