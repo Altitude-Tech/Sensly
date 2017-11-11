@@ -1,15 +1,17 @@
-# Module that contains the functions necessary for the operation
+#n Module that contains the functions necessary for the operation
 # of the Sensly HAT
 
 # Import common modules needed for script
 import time
 from math import log10
+import logging
+import sys
 
-# Import installed modules need for script
+# Import installed modules needed for script
 import smbus as I2C
 
 # Define the i2c address for the Sensly HAT
-I2C_Addr = 0x05
+I2C_HAT_ADDRESS = 0x05
 
 # LED Constants
 # Array containing RGB values for LED [RED Brightness, Green Brightness, Blue Brightness]
@@ -24,14 +26,21 @@ LEDcmd = 0x07
 MaxADC = 4095
 RLOAD = 10000
 
-# PM Constants for interpreting raw PM data
-NODUSTVOLTAGE = 500
-COVRATIO = 0.2
 
-
+#*************************************************************************************************
+# Class sensor MQ2 MQ7 MQ135
+#*************************************************************************************************
 class Sensor:
 
+	# PM Constants for interpreting raw PM data seems there is some doc on https://www.sparkfun.com/datasheets/Sensors/gp2y1010au_e.pdf
+    NODUSTVOLTAGE = 500
+    COVRATIO = 0.2
+    OPTICAL_DUST_SENSOR_CMD = 0x04
+    OPTICAL_DUST_SENSOR_SAMPLING_TIME = 0.4 #28ms in doc
+    RS = None # Stands for resistance value
+
     def __init__(self, name, R0, RSAIR):
+	logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
         self.name = name
         i2c = I2C.SMBus(1)  
         self._device = i2c
@@ -41,19 +50,49 @@ class Sensor:
         self.MaxADC = MaxADC
         
     # Function to get raw data for the sensors from the Sensly HAT via the i2c peripheral
-    def Get_rawdata(self,cmd):
+    def Get_rawdata(self, cmd):
         data = []
-        self._device.write_byte(I2C_Addr,cmd)
+	logging.debug("Writting byte {} with index {}".format(I2C_HAT_ADDRESS, cmd))
+        self._device.write_byte(I2C_HAT_ADDRESS, cmd)
         time.sleep(0.01)
-        data.append(self._device.read_byte(I2C_Addr))
+	bt = self._device.read_byte(I2C_HAT_ADDRESS)
+	logging.debug("Read byte is '{}'".format(bt))
+        data.append(bt)
         time.sleep(0.01)
-        data.append(self._device.read_byte(I2C_Addr))
+	bt = self._device.read_byte(I2C_HAT_ADDRESS)
+	logging.debug("Read byte is '{}'".format(bt))
+        data.append(bt)
 
         self.Raw = data[0] 
         self.Raw = (self.Raw<<8) | data[1]
+	logging.debug("Raw Data returned value is {}".format(self.Raw))
         return self.Raw
     
-    # Function to convert the raw data to a resistance value 
+    
+    def get_optical_dust_sensor_rawdata(self):
+	"""# Function to get raw data for the sensors from the Sensly HAT via the i2c peripheral"""
+        data = []
+	logging.debug("Writting byte {} with index {}".format(I2C_HAT_ADDRESS, self.OPTICAL_DUST_SENSOR_CMD))
+        self._device.write_byte(I2C_HAT_ADDRESS, self.OPTICAL_DUST_SENSOR_CMD)
+        time.sleep(self.OPTICAL_DUST_SENSOR_SAMPLING_TIME)
+	byteRead = self._device.read_byte(I2C_HAT_ADDRESS)
+	logging.debug("Byte read from dust sensor:" + str(byteRead))
+        data.append(byteRead)
+        time.sleep(self.OPTICAL_DUST_SENSOR_SAMPLING_TIME)
+	byteRead = self._device.read_byte(I2C_HAT_ADDRESS)
+	logging.debug("Byte read from dust sensor:" + str(byteRead))
+        data.append(byteRead)
+	logging.debug("Optical dust sensor read raw values are:" + str(data))
+
+        self.Raw = data[0] 
+        self.Raw = (self.Raw<<8) | data[1]
+	logging.debug("Optical dust sensor returned value is {}".format(self.Raw))
+        return self.Raw
+
+
+    """Setting self.RS value
+	 Function to convert the raw data to a resistance value 
+    """
     def Get_RS(self,cmd):
         self.RS = ((float(self.MaxADC)/float(self.Get_rawdata(cmd))-1)*self.RLOAD)
         return self.RS
@@ -73,18 +112,21 @@ class Sensor:
         self.RZERO = AvRs/RSAIR
         return self.RZERO
     
-    # Function to calculate the voltage from raw PM data
+    
     def Get_PMVolt(self, cmd):
-        self.PMVolt = ((3300.00/self.MaxADC)*float(self.Get_rawdata(cmd))*11.00)
+	"""Function to calculate the voltage from raw PM data"""
+	rawData = self.get_optical_dust_sensor_rawdata()
+	logging.debug("Rawdata from opticalDustSensor is " + str(rawData))
+        self.PMVolt = ((3300.00 / self.MaxADC) * float(rawData) * 11.00)
         return self.PMVolt
     
-    # Function to calculate the densisty of the particulate matter detected 
+    
     def Get_PMDensity(self, cmd):
+	""" Function to calculate the densisty of the particulate matter detected""" 
         self.Get_PMVolt(cmd)
-        if (self.PMVolt >= NODUSTVOLTAGE):
-            self.PMVolt -= NODUSTVOLTAGE
-            self.PMDensity = self.PMVolt * COVRATIO
-
+        if (self.PMVolt >= self.NODUSTVOLTAGE):
+            self.PMVolt -= self.NODUSTVOLTAGE
+            self.PMDensity = self.PMVolt * self.COVRATIO
         else:
             self.PMDensity = 0            
         return self.PMDensity
@@ -120,11 +162,14 @@ class Sensor:
         correctedrsro = rsroCorrPct * (self.Get_RSR0Ratio(cmd))
         return correctedrsro
     
-
+#*************************************************************************************************
+# Class Gaz
+#*************************************************************************************************
 class Gas:
     
     def __init__(self,name,rsromax,rsromin,gradient,intercept, threshold, LED = []):
         self.name = name
+	logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
         i2c = I2C.SMBus(1)  
         self._device = i2c
         self.min = rsromin
@@ -134,16 +179,20 @@ class Gas:
         self.threshold = threshold
         self.LED = LED
         LEDcmd = 0x07
-    # Function to calculate the PPM of the specific gas
+
+    
     def Get_PPM(self, rs_ro):
+	"""# Function to calculate the PPM of the specific gas"""
         self.PPM = pow(10,((self.gradient*(log10(rs_ro)))+self.intercept))
         return self.PPM
     
     # Function to set the LED Color, used for setting alarms points
     def Set_LED(self, LEDColour):  # LEDColour = Red , Green, Blue Brightness values from 0 - 255 in an array   
-        self._device.write_byte(I2C_Addr,LEDcmd)
+        self._device.write_byte(I2C_HAT_ADDRESS,LEDcmd)
+	logging.debug("Writting byte {} with index {} for Setting LED Color".format(I2C_HAT_ADDRESS, LEDcmd))
         for x in range(3):
-            self._device.write_byte(I2C_Addr,self.LEDColour[x])
+	    logging.debug("Writting byte {} with index {}".format(I2C_HAT_ADDRESS, LEDColour[x]))
+            self._device.write_byte(I2C_HAT_ADDRESS, LEDColour[x])
             
     # Function to check the PPM value against the predefined threshold         
     def Chk_threshold(self):
