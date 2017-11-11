@@ -1,8 +1,17 @@
-import smbus 
+# ****************************************************************************************************
+# Written by Sam Onwugbenu sam@altitude.pw founder of Altitude.tech
+#
+# 	Eddited by Philippe Gachoud ph.gachoud@gmail.com on 201711
+#		For bug fixings and code commenting & readability
+#
+# For all values R0 is resistance in fresh air, Rs is sensor resistance in certain concentration of gas
+#
+# ****************************************************************************************************
 import time 
+import smbus 
 
 import RPi.GPIO as GPIO
-from Sensors import Sensor, Gas
+from Sensors import * 
 import Adafruit_BME280
 import logging
 import sys
@@ -10,7 +19,7 @@ import os
 
 SENSLY_WARMUP_TIME = 1 # Seconds to wait for warmup (AltitudeTech 600)
 SAMPLING_SECONDS = 10 # Seconds to wait between data sampling (AltitudeTech 30)
-DATA_FILE_NAME = './sampleData/Sensly_%d-%m-%Y_%H_%M_%S.csv' # File name where data are written
+DATA_FILE_NAME = './sampleData/Sensly_%d-%m-%Y_%H_%M_%S.csv' # File name where data are written, parentDir is created if not existing
 DATA_FILE_HEADER = 'Time, Carbon Monoxide PPM, Ammonia PPM, Carbon Dioxide PPM, Methly PPM, Acetone PPM, Methane PPM, LPG PPM, Hydrogen PPM, Propane PPM, PM10'
 
 # Sensly Constants 
@@ -318,7 +327,7 @@ def save_read_data_to_csv():
 			humidity = bME280_Sensor.read_humidity()
 			logging.debug("BME280 read humidity is (Carefull, hat is hot so temp is not corrected by default):" + str(humidity))
 
-			# Correct the RS/R) ratio to account for temperature and humidity,
+			# Correct the RS/R0 ratio to account for temperature and humidity,
 			# Then calculate the PPM for each gas
 			MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2( MQ2_INDEX, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
 			Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
@@ -331,6 +340,7 @@ def save_read_data_to_csv():
 			MQ135Rs_R0 = MQ135.Corrected_RS_RO( MQ135_INDEX, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
 			Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
 
+			logging.debug("Gases are followings MQ2 {}\n MQ7 {}\n MQ135 {}\n".format(MQ2_Gases, MQ7_Gases, MQ135_Gases))
 			# Store the calculated gases in an array
 			data.append(MQ7_Gases[3])
 			data.append(MQ135_Gases[1])
@@ -354,7 +364,7 @@ def save_read_data_to_csv():
 				f2.write(toWrite)
 				logging.debug("Writting to datafile:" + toWrite + " " + DATA_FILE_HEADER) 
 
-			logging.debug("waiting another " + str(SAMPLING_SECONDS) + " seconds till next data getting")
+			logging.debug("-------- Waiting for another " + str(SAMPLING_SECONDS) + " seconds till next data getting")
 			time.sleep(SAMPLING_SECONDS)
 	except KeyboardInterrupt:
 		logging.info("You pressed Ctrl+C, Bye")
@@ -460,8 +470,10 @@ def MQ2_test():
 	waitTimeWrite = 0.4
 	retriesCount = 10
 	select_sensor(MQ2_INDEX)
-	get_read_byte(retriesCount, waitTimeToRead)
-	get_read_byte(retriesCount, waitTimeToRead)
+	b1 = get_read_byte(retriesCount, waitTimeToRead)
+	b2 = get_read_byte(retriesCount, waitTimeToRead)
+	val = b1<<8|b2
+	logging.debug("Read value is {}).format(val)")
 
 
 """ Reads infos from MQ7"""
@@ -473,8 +485,10 @@ def MQ7_test():
 	waitTimeWrite = 0.4
 	retriesCount = 10
 	select_sensor(MQ7_INDEX)
-	get_read_byte(retriesCount, waitTimeToRead)
-	get_read_byte(retriesCount, waitTimeToRead)
+	b1 = get_read_byte(retriesCount, waitTimeToRead)
+	b2 = get_read_byte(retriesCount, waitTimeToRead)
+	val = b1<<8|b2
+	logging.debug("Read value is {}).format(val)")
 
 
 """ Reads infos from MQ135"""
@@ -486,9 +500,14 @@ def MQ135_test():
 	waitTimeWrite = 0.4
 	retriesCount = 10
 	select_sensor(MQ135_INDEX)
-	get_read_byte(retriesCount, waitTimeToRead)
-	get_read_byte(retriesCount, waitTimeToRead)
+	b1 = get_read_byte(retriesCount, waitTimeToRead)
+	b2 = get_read_byte(retriesCount, waitTimeToRead)
+	val = b1<<8|b2
+	logging.debug("Read value is {}).format(val)")
 
+
+def LED_test():
+	MQ2_H2.Set_LED(Green)
 
 # *******************************************
 # MAIN FUNCTION
@@ -497,12 +516,14 @@ try:
 	# Initialize
 	initialize()
 	init_BME280_Sensor()
-	save_read_data_to_csv()
 	#dust_sensor_read_test_v1()
 	dust_sensor_read_test_v2()
 	MQ2_test()
 	MQ7_test()
 	MQ135_test()
+	#LED_test()
+	# All sensors tested
+	save_read_data_to_csv()
 except KeyboardInterrupt:
 	logging.info("You pressed Ctrl+C, Bye")
 finally:

@@ -189,10 +189,10 @@ class Gas:
     # Function to set the LED Color, used for setting alarms points
     def Set_LED(self, LEDColour):  # LEDColour = Red , Green, Blue Brightness values from 0 - 255 in an array   
         self._device.write_byte(I2C_HAT_ADDRESS,LEDcmd)
-	logging.debug("Writting byte {} with index {}".format(I2C_HAT_ADDRESS, LEDcmd))
+	logging.debug("Writting byte {} with index {} for Setting LED Color".format(I2C_HAT_ADDRESS, LEDcmd))
         for x in range(3):
-	    logging.debug("Writting byte {} with index {}".format(I2C_HAT_ADDRESS, self.LEDColour[x]))
-            self._device.write_byte(I2C_HAT_ADDRESS,self.LEDColour[x])
+	    logging.debug("Writting byte {} with index {}".format(I2C_HAT_ADDRESS, LEDColour[x]))
+            self._device.write_byte(I2C_HAT_ADDRESS, LEDColour[x])
             
     # Function to check the PPM value against the predefined threshold         
     def Chk_threshold(self):
