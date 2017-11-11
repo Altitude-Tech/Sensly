@@ -6,11 +6,12 @@ from Sensors import Sensor, Gas
 import Adafruit_BME280
 import logging
 import sys
-
+import os
 
 SENSLY_WARMUP_TIME = 1 # Seconds to wait for warmup (AltitudeTech 600)
 SAMPLING_SECONDS = 10 # Seconds to wait between data sampling (AltitudeTech 30)
-DATA_FILE_NAME = './Sensly_%d-%m-%Y_%H_%M_%S.csv' # File name where data are written
+DATA_FILE_NAME = './sampleData/Sensly_%d-%m-%Y_%H_%M_%S.csv' # File name where data are written
+DATA_FILE_HEADER = 'Time, Carbon Monoxide PPM, Ammonia PPM, Carbon Dioxide PPM, Methly PPM, Acetone PPM, Methane PPM, LPG PPM, Hydrogen PPM, Propane PPM, PM10'
 
 # Sensly Constants 
 R0 = [3120.5010, 1258.8822, 2786.3375]      # MQ2, MQ7, MQ135 R0 resistance (needed for PPM calculation).
@@ -25,9 +26,13 @@ MQ135 = Sensor('MQ135',R0[2],RSAir[2])
 opticalDustSensor = Sensor('PM',0,0)
 
 # Set commands for getting data from sensors 
-MQ2_CMD = 0x01
-MQ7_CMD = 0x02
-MQ135_CMD = 0x03
+HAT_BUS_ADDRESS = 0x05
+MQ2_INDEX = 0x01
+MQ7_INDEX = 0x02
+MQ135_INDEX = 0x03
+DUST_SENSOR_INDEX = 0x04
+BUS_WRITE_TIME_TO_SLEEP = 0.4
+
 
 # Constants for temperature and humididty correction
 MQ2_t_30H = [-0.00000072,0.00006753,-0.01530561,1.5594955]
@@ -78,11 +83,14 @@ bME280_Sensor = None
 
 # Initialises 
 def initialize():
-	global bME280_Sensor
 	logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
 	ResetGPIO()
+
+# Initializes BME Sensor
+def init_BME280_Sensor():
+	global bME280_Sensor
+	logging.debug("----- BME Sensor {}")
 	bME280_Sensor = Adafruit_BME280.BME280(t_mode=Adafruit_BME280.BME280_OSAMPLE_8, h_mode=Adafruit_BME280.BME280_OSAMPLE_8, address=0x76) # Sometimes Crash with a connection timeout
-	logging.debug("Initialize:" + str(bME280_Sensor))
 
 # Reseting the HAT
 def ResetGPIO():
@@ -264,14 +272,7 @@ def Get_MQ135PPM(MQ135Rs_R0, Gases = []):
         
 def save_read_data_to_csv():
 	"""Writes read data from sensors into csv files"""
-global COPPM, NH4, CO2PPM, CO2H50HPPM = 0
-			CH3PPM = 0
-			CH3_2COPPM = 0
-			AlchPPM = 0
-			CH4PPM = 0
-			LPGPPM = 0
-			H2PPM = 0
-			PropPPM = 0
+	global COPPM, NH4, CO2PPM, CO2H50HPPM, CH3PPM, CH3_2COPPM, AlchPPM, CH4PPM, LPGPPM, H2PPM, PropPPM 
 
 	#Warmum otherwise data are not the same, seems that after 10 minutes the data become more stables
 	logging.info("Sensly is warming up please wait for " + str(SENSLY_WARMUP_TIME) + " seconds")
@@ -279,9 +280,12 @@ global COPPM, NH4, CO2PPM, CO2H50HPPM = 0
 	logging.info("Warmup completed")
 	#CSV File header
 	datafile = time.strftime(DATA_FILE_NAME)
+	directory = os.path.dirname(DATA_FILE_NAME)
+	if not os.path.exists(directory):
+		os.makedirs(directory)
 	logging.debug("Writting data to " + str(datafile))
 	with open(datafile, 'w+') as f1:
-		f1.write('Time, Carbon Monoxide PPM, Ammonia PPM, Carbon Dioxide PPM, Methly PPM, Acetone PPM, Methane PPM, LPG PPM, Hydrogen PPM, Propane PPM, PM10 \n')
+		f1.write(DATA_FILE_HEADER + '\n')
 
 	try:
 		logging.info("Enterring to a True loop, Ctrl+c to stop it...")
@@ -316,15 +320,15 @@ global COPPM, NH4, CO2PPM, CO2H50HPPM = 0
 
 			# Correct the RS/R) ratio to account for temperature and humidity,
 			# Then calculate the PPM for each gas
-			MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2( MQ2_CMD, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
+			MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2( MQ2_INDEX, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
 			Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
 
 			ResetGPIO() 
-			MQ7Rs_R0 = MQ7.Corrected_RS_RO( MQ7_CMD, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
+			MQ7Rs_R0 = MQ7.Corrected_RS_RO( MQ7_INDEX, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
 			Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
 
 			ResetGPIO() 
-			MQ135Rs_R0 = MQ135.Corrected_RS_RO( MQ135_CMD, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
+			MQ135Rs_R0 = MQ135.Corrected_RS_RO( MQ135_INDEX, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
 			Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
 
 			# Store the calculated gases in an array
@@ -348,7 +352,7 @@ global COPPM, NH4, CO2PPM, CO2H50HPPM = 0
 			with open(datafile, 'a') as f2:
 				toWrite = ','.join(str(d) for d in data) + '\n'
 				f2.write(toWrite)
-				logging.debug("Writting to datafile:" + toWrite) 
+				logging.debug("Writting to datafile:" + toWrite + " " + DATA_FILE_HEADER) 
 
 			logging.debug("waiting another " + str(SAMPLING_SECONDS) + " seconds till next data getting")
 			time.sleep(SAMPLING_SECONDS)
@@ -358,8 +362,151 @@ global COPPM, NH4, CO2PPM, CO2H50HPPM = 0
 		logging.info("You can check your data into " + DATA_FILE_NAME) 
 		GPIO.cleanup() #resets any ports you have used in this program back to input mode
 
-    
-    
-# Initialize
-initialize()
-save_read_data_to_csv()
+
+# Write I2C block (from https://github.com/DexterInd/GrovePi/blob/master/Software/Python/grovepi.py)
+def write_i2c_block(address, block):
+	bus = smbus.SMBus(1)
+	RETRIES = 10
+	result = -1
+        for i in range(RETRIES):
+                try:
+                        result = bus.write_i2c_block_data(address, 1, block)
+			logging.debug("Writting i2c block succeeded after " + str(i) + " times")
+			break
+                except IOError:
+			logging.debug("IO Error trying to write block data to " + str(address) + " block:" + str(block) + " " + str(i) + " times")
+        return result 
+
+
+def dust_sensor_read_test_v1():
+	"""Testing dustsensor raw commands"""
+	# I2C Address of Arduino
+	address = 0x05
+	dust_sensor_en_cmd=[14]
+	dust_sensor_dis_cmd=[15]
+	dus_sensor_read_cmd=[10]
+	unused = 0 ## This allows us to be more specific about which commands contain unused bytes
+	bus = smbus.SMBus(1)
+	#init or en
+	write_i2c_block(address, dust_sensor_en_cmd + [unused, unused, unused])
+	time.sleep(.2)
+	#dis
+	write_i2c_block(address, dust_sensor_dis_cmd + [unused, unused, unused])
+	time.sleep(.2)
+	#read
+        write_i2c_block(address, dus_sensor_read_cmd + [unused, unused, unused])
+        time.sleep(.2)
+        #read_i2c_byte(address)
+        #number = read_i2c_block(address)
+        #return (number[1] * 256 + number[2])
+        data_back= bus.read_i2c_block_data(address, 1)[0:4]
+        #print data_back[:4]
+        if data_back[0]!=255:
+                lowpulseoccupancy=(data_back[3]*256*256+data_back[2]*256+data_back[1])
+                logging.debug(str([data_back[0],lowpulseoccupancy]))
+                return [data_back[0],lowpulseoccupancy]
+        else:
+                return [-1,-1]
+        print (data_back)
+
+
+"""Writes the given sensorIndex on the HAT
+	This selects the sensor you'll get the informations from doing a read_byte after this method
+"""
+def select_sensor(sensorIndex):
+	bus.write_byte(HAT_BUS_ADDRESS, sensorIndex)
+	time.sleep(BUS_WRITE_TIME_TO_SLEEP)
+
+""" Reads a byte on HAT_BUS_ADDRESS
+	If an IOError occures, will try 'retriesCount' times before getting out of the loop and returning -1
+	Between two read it'll wait 'waitTimeBetweenTwoRead'
+"""
+def get_read_byte(retriesCount, waitTimeBetweenTwoRead):
+	result = -1
+	for i in range(retriesCount):
+		try:
+			result = bus.read_byte(HAT_BUS_ADDRESS)
+			time.sleep(waitTimeBetweenTwoRead)
+			logging.debug("Read gave result '{}' after '{}' times".format(result, i))
+			break
+		except IOError:
+			logging.warn("IO Error trying to read byte on HAT after '{}'times".format(i))
+		except:
+			logging.error("Unexpected error:", sys.exc_info()[0])
+			raise
+
+	return result	
+
+
+""" Reads infos from dust sensor"""
+def dust_sensor_read_test_v2():
+	global bus
+
+	logging.info("---- DUST SenSoR ----")
+	bus = smbus.SMBus(1)
+	waitTimeToRead = 0.3
+	waitTimeWrite = 0.4
+	retriesCount = 10
+	select_sensor(DUST_SENSOR_INDEX)
+	get_read_byte(retriesCount, waitTimeToRead)
+	get_read_byte(retriesCount, waitTimeToRead)
+
+""" Reads infos from MQ2"""
+def MQ2_test():
+	global bus
+	logging.info("---- MQ2 ----")
+	bus = smbus.SMBus(1)
+	waitTimeToRead = 0.3
+	waitTimeWrite = 0.4
+	retriesCount = 10
+	select_sensor(MQ2_INDEX)
+	get_read_byte(retriesCount, waitTimeToRead)
+	get_read_byte(retriesCount, waitTimeToRead)
+
+
+""" Reads infos from MQ7"""
+def MQ7_test():
+	global bus
+	logging.info("---- MQ7 ----")
+	bus = smbus.SMBus(1)
+	waitTimeToRead = 0.3
+	waitTimeWrite = 0.4
+	retriesCount = 10
+	select_sensor(MQ7_INDEX)
+	get_read_byte(retriesCount, waitTimeToRead)
+	get_read_byte(retriesCount, waitTimeToRead)
+
+
+""" Reads infos from MQ135"""
+def MQ135_test():
+	global bus
+	logging.info("---- MQ135 ----")
+	bus = smbus.SMBus(1)
+	waitTimeToRead = 0.3
+	waitTimeWrite = 0.4
+	retriesCount = 10
+	select_sensor(MQ135_INDEX)
+	get_read_byte(retriesCount, waitTimeToRead)
+	get_read_byte(retriesCount, waitTimeToRead)
+
+
+# *******************************************
+# MAIN FUNCTION
+# *******************************************
+try:
+	# Initialize
+	initialize()
+	init_BME280_Sensor()
+	save_read_data_to_csv()
+	#dust_sensor_read_test_v1()
+	dust_sensor_read_test_v2()
+	MQ2_test()
+	MQ7_test()
+	MQ135_test()
+except KeyboardInterrupt:
+	logging.info("You pressed Ctrl+C, Bye")
+finally:
+	logging.info("You can check your data into " + DATA_FILE_NAME) 
+	GPIO.cleanup() #resets any ports you have used in this program back to input mode
+
+ 

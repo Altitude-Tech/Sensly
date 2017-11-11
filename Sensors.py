@@ -27,6 +27,9 @@ MaxADC = 4095
 RLOAD = 10000
 
 
+#*************************************************************************************************
+# Class sensor MQ2 MQ7 MQ135
+#*************************************************************************************************
 class Sensor:
 
 	# PM Constants for interpreting raw PM data seems there is some doc on https://www.sparkfun.com/datasheets/Sensors/gp2y1010au_e.pdf
@@ -34,7 +37,7 @@ class Sensor:
     COVRATIO = 0.2
     OPTICAL_DUST_SENSOR_CMD = 0x04
     OPTICAL_DUST_SENSOR_SAMPLING_TIME = 0.4 #28ms in doc
-
+    RS = None # Stands for resistance value
 
     def __init__(self, name, R0, RSAIR):
 	logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
@@ -49,20 +52,27 @@ class Sensor:
     # Function to get raw data for the sensors from the Sensly HAT via the i2c peripheral
     def Get_rawdata(self, cmd):
         data = []
+	logging.debug("Writting byte {} with index {}".format(I2C_HAT_ADDRESS, cmd))
         self._device.write_byte(I2C_HAT_ADDRESS, cmd)
         time.sleep(0.01)
-        data.append(self._device.read_byte(I2C_HAT_ADDRESS))
+	bt = self._device.read_byte(I2C_HAT_ADDRESS)
+	logging.debug("Read byte is '{}'".format(bt))
+        data.append(bt)
         time.sleep(0.01)
-        data.append(self._device.read_byte(I2C_HAT_ADDRESS))
+	bt = self._device.read_byte(I2C_HAT_ADDRESS)
+	logging.debug("Read byte is '{}'".format(bt))
+        data.append(bt)
 
         self.Raw = data[0] 
         self.Raw = (self.Raw<<8) | data[1]
+	logging.debug("Raw Data returned value is {}".format(self.Raw))
         return self.Raw
     
     
     def get_optical_dust_sensor_rawdata(self):
 	"""# Function to get raw data for the sensors from the Sensly HAT via the i2c peripheral"""
         data = []
+	logging.debug("Writting byte {} with index {}".format(I2C_HAT_ADDRESS, self.OPTICAL_DUST_SENSOR_CMD))
         self._device.write_byte(I2C_HAT_ADDRESS, self.OPTICAL_DUST_SENSOR_CMD)
         time.sleep(self.OPTICAL_DUST_SENSOR_SAMPLING_TIME)
 	byteRead = self._device.read_byte(I2C_HAT_ADDRESS)
@@ -76,10 +86,13 @@ class Sensor:
 
         self.Raw = data[0] 
         self.Raw = (self.Raw<<8) | data[1]
+	logging.debug("Optical dust sensor returned value is {}".format(self.Raw))
         return self.Raw
 
 
-    # Function to convert the raw data to a resistance value 
+    """Setting self.RS value
+	 Function to convert the raw data to a resistance value 
+    """
     def Get_RS(self,cmd):
         self.RS = ((float(self.MaxADC)/float(self.Get_rawdata(cmd))-1)*self.RLOAD)
         return self.RS
@@ -149,7 +162,9 @@ class Sensor:
         correctedrsro = rsroCorrPct * (self.Get_RSR0Ratio(cmd))
         return correctedrsro
     
+#*************************************************************************************************
 # Class Gaz
+#*************************************************************************************************
 class Gas:
     
     def __init__(self,name,rsromax,rsromin,gradient,intercept, threshold, LED = []):
@@ -165,15 +180,18 @@ class Gas:
         self.LED = LED
         LEDcmd = 0x07
 
-    # Function to calculate the PPM of the specific gas
+    
     def Get_PPM(self, rs_ro):
+	"""# Function to calculate the PPM of the specific gas"""
         self.PPM = pow(10,((self.gradient*(log10(rs_ro)))+self.intercept))
         return self.PPM
     
     # Function to set the LED Color, used for setting alarms points
     def Set_LED(self, LEDColour):  # LEDColour = Red , Green, Blue Brightness values from 0 - 255 in an array   
         self._device.write_byte(I2C_HAT_ADDRESS,LEDcmd)
+	logging.debug("Writting byte {} with index {}".format(I2C_HAT_ADDRESS, LEDcmd))
         for x in range(3):
+	    logging.debug("Writting byte {} with index {}".format(I2C_HAT_ADDRESS, self.LEDColour[x]))
             self._device.write_byte(I2C_HAT_ADDRESS,self.LEDColour[x])
             
     # Function to check the PPM value against the predefined threshold         
