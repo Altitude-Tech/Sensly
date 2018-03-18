@@ -184,6 +184,7 @@ class Gas:
     def Get_PPM(self, rs_ro):
 	"""# Function to calculate the PPM of the specific gas"""
         self.PPM = pow(10,((self.gradient*(log10(rs_ro)))+self.intercept))
+	logging.debug("Getting PPM gave %s" % self.PPM)
         return self.PPM
     
     # Function to set the LED Color, used for setting alarms points

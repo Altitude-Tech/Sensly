@@ -442,7 +442,7 @@ def get_read_byte(retriesCount, waitTimeBetweenTwoRead):
 		except IOError:
 			logging.warn("IO Error trying to read byte on HAT after '{}'times".format(i))
 		except:
-			logging.error("Unexpected error:", sys.exc_info()[0])
+			logging.exception("Unexpected error:", sys.exc_info()[0])
 			raise
 
 	return result	
