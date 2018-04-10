@@ -330,7 +330,7 @@ try:
         
 
 except KeyboardInterrupt:
-    print "Bye"
+    logger.info("Keyboard interruption")
     
 
     
