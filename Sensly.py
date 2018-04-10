@@ -273,7 +273,7 @@ def main():
 		MQ7cmd = 0x02
 		MQ135cmd = 0x03
 		PMcmd = 0x04
-		logger.info("Sensly is warming up please wait for 15 minutes")
+		logger.info("Sensly is warming up please wait for %s seconds" % WARM_UP_TIMEOUT)
 		sleep(WARM_UP_TIMEOUT)
 		logger.info("Heating Completed")
 		while True:

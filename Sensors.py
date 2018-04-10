@@ -2,12 +2,13 @@
 # of the Sensly HAT
 
 # Import common modules needed for script
+import sys
 import time
 from math import log10
 import logging
 
-# Import installed modules need for script
-import smbus as I2C
+
+import smbus as I2C # Import installed modules need for script
 
 # Define the i2c address for the Sensly HAT
 I2C_Addr = 0x05
