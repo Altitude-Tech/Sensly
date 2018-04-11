@@ -1,4 +1,5 @@
 import smbus 
+import subprocess
 from time import *
 
 import RPi.GPIO as GPIO
@@ -87,6 +88,19 @@ def Reset():
 	GPIO.output(23, True) ## Set GPIO Pin 23 to High
 	# Clean up the GPIO pins 
 	GPIO.cleanup()
+
+def print_i2cdetect():
+	command = "i2cdetect -y 1"
+	try:
+		p = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
+		for line in p.stdout.readlines():
+			print line,
+		retval = p.wait()
+	except Exception:
+		logger.exception("Exception in popen with command %s" % command)
+		raise
+	logger.info("I2cdetect value is:%s" % val)
+	print val
 
 def init_logger():
 	"""
@@ -313,14 +327,20 @@ def main():
 
 			# Correct the RS/R) ratio to account for temperature and humidity,
 			# Then calculate the PPM for each gas
+			#MQ2
+			print_i2cdetect()
 			MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2( MQ2cmd, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
 			logger.debug("Getting MQ2 Sensor values")
 			Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
 			
+			#MQ7
+			print_i2cdetect()
 			MQ7Rs_R0 = MQ7.Corrected_RS_RO( MQ7cmd, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
 			logger.debug("Getting MQ7 Sensor values")
 			Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
 			
+			#MQ135
+			print_i2cdetect()
 			MQ135Rs_R0 = MQ135.Corrected_RS_RO( MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
 			logger.debug("Getting MQ135 Sensor values")
 			Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)

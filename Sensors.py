@@ -56,8 +56,8 @@ class Sensor:
 			Reads 2 bytes after setting mode with write byte cmd, sets self.Raw to it, and returns self.Raw
 		"""
 		data = []
-		self.__logger.debug("Writting byte %s to address %s" % (I2C_HAT_ADDRESS, cmd))
-		self._device.write_byte(I2C_HAT_ADDRESS,cmd) # Crashes here with 121 remote IO Error
+		self.__logger.debug("Writting byte %s to address %s (selecting sensor)" % (I2C_HAT_ADDRESS, cmd))
+		self._device.write_byte(I2C_HAT_ADDRESS,cmd) # Crashes here with 121 remote IO Error (Selecting sensor)
 		time.sleep(0.01) # Original from altitude
 		#Byte 1
 		read_byte = self._device.read_byte(I2C_HAT_ADDRESS)
