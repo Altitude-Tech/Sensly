@@ -14,9 +14,7 @@ R0 = [3120.5010, 1258.8822, 2786.3375]      # MQ2, MQ7, MQ135 R0 resistance (nee
                                             # Found by placing the Sensor in a clean air environment and running the calibration script
 RSAir = [9.5,27,3.62]                       # Sensor RS/R0 ratio in clean air
 
-
 LED = [0xFF, 0x00, 0x00]                    # Set LED to Red 
-
 
 MQ2 = Sensor('MQ2',R0[0],RSAir[0])          # name, Calibrated R0 value, RSAir value 
 MQ7 = Sensor('MQ7',R0[1],RSAir[1])
@@ -34,8 +32,13 @@ MQ7_t_85H = [-0.00000481,0.0003916,-0.01267189,0.99930744]
 MQ135_t_33H = [-0.00000042,0.00036988,-0.02723828,1.40020563]
 MQ135_t_85H = [-0.0000002,0.00028254,-0.02388492,1.27309524]
 
-#Initalise the gases
+#Sensors commands
+MQ2cmd = 0x01
+MQ7cmd = 0x02
+MQ135cmd = 0x03
+PMcmd = 0x04
 
+#Gases variables
 COPPM = 0
 NH4PPM = 0
 CO2PPM = 0
@@ -70,194 +73,201 @@ MQ135_Acet = Gas('MQ135_Acetone', 0.1790, -0.2328, -3.1878, 1.577, 100, LED)
 
 #Variables
 logger = None
-sensor = BME280(mode=BME280_OSAMPLE_8)
+temp_hum_sensor = BME280(mode=BME280_OSAMPLE_8)
 
 #functions
 
 def Reset():
-    GPIO.setmode(GPIO.BCM) ## Use BCM numbering
-    GPIO.setup(23, GPIO.OUT)
+	GPIO.setmode(GPIO.BCM) ## Use BCM numbering
+	GPIO.setup(23, GPIO.OUT)
 
-    # Reset Sensly HAT
-    GPIO.output(23, False) ## Set GPIO Pin 23 to low
-    time.sleep(0.5)
-    GPIO.output(23, True) ## Set GPIO Pin 23 to low
-    # Clean up the GPIO pins 
-    GPIO.cleanup()
+	# Reset Sensly HAT
+	GPIO.output(23, False) ## Set GPIO Pin 23 to low
+	time.sleep(0.5)
+	GPIO.output(23, True) ## Set GPIO Pin 23 to High
+	# Clean up the GPIO pins 
+	GPIO.cleanup()
 
 def init_logger():
+	"""
+	 Initializes the logger
+	"""           
 	global logger
 	logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
 	logger = logging.getLogger(__name__)
 	logger.debug("start of script")
-	logger.debug("debug test this is logged as debug level")
   
-'''
-This Function checks the RS/R0 value to select which gas is being detected
-'''
 def Get_MQ2PPM(MQ2Rs_R0, Gases = []):
-    if MQ2Rs_R0 <= 5.2 and MQ2Rs_R0 > 3:
-        Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
-        Gases[1] = 0
-        Gases[2] = 0
-        Gases[3] = 0
-        Gases[4] = 0
-        Gases[5] = 0
-    elif MQ2Rs_R0 <=3 and MQ2Rs_R0 > 2.85:
-        Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
-        Gases[1] = MQ2_CH4.Get_PPM(MQ2Rs_R0)
-        Gases[2] = 0
-        Gases[3] = 0
-        Gases[4] = 0
-        Gases[5] = 0
-    elif MQ2Rs_R0 <=2.85 and MQ2Rs_R0 > 2.1:
-        Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
-        Gases[1] = MQ2_CH4.Get_PPM(MQ2Rs_R0)
-        Gases[2] = MQ2_Alch.Get_PPM(MQ2Rs_R0)
-        Gases[3] = 0
-        Gases[4] = 0
-        Gases[5] = 0
-    elif MQ2Rs_R0 <= 2.1 and MQ2Rs_R0 > 1.8:
-        Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
-        Gases[1] = MQ2_CH4.Get_PPM(MQ2Rs_R0)
-        Gases[2] = MQ2_Alch.Get_PPM(MQ2Rs_R0)
-        Gases[3] = MQ2_H2.Get_PPM(MQ2Rs_R0)
-        Gases[4] = 0
-        Gases[5] = 0
-    elif MQ2Rs_R0 <= 1.8 and MQ2Rs_R0 > 1.6:
-        Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
-        Gases[1] = MQ2_CH4.Get_PPM(MQ2Rs_R0)
-        Gases[2] = MQ2_Alch.Get_PPM(MQ2Rs_R0)
-        Gases[3] = MQ2_H2.Get_PPM(MQ2Rs_R0)
-        Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
-        Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
-    elif MQ2Rs_R0 <= 1.6 and MQ2Rs_R0 > 0.69:
-        Gases[0] = 0
-        Gases[1] = MQ2_CH4.Get_PPM(MQ2Rs_R0)
-        Gases[2] = MQ2_Alch.Get_PPM(MQ2Rs_R0)
-        Gases[3] = MQ2_H2.Get_PPM(MQ2Rs_R0)
-        Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
-        Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
-    elif MQ2Rs_R0 <= 0.69 and MQ2Rs_R0 > 0.335:
-        Gases[0] = 0
-        Gases[1] = 0
-        Gases[2] = 0
-        Gases[3] = MQ2_H2.Get_PPM(MQ2Rs_R0)
-        Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
-        Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
-    elif MQ2Rs_R0 <= 0.335 and MQ2Rs_R0 > 0.26:
-        Gases[0] = 0
-        Gases[1] = 0
-        Gases[2] = 0
-        Gases[3] = 0
-        Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
-        Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
-'''
-This Function checks the RS/R0 value to select which gas is being detected
-'''
+	"""
+	This Function checks the RS/R0 value to select which gas is being detected
+		modifies Gases parameter
+	"""
+	if MQ2Rs_R0 <= 5.2 and MQ2Rs_R0 > 3:
+		Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
+		Gases[1] = 0
+		Gases[2] = 0
+		Gases[3] = 0
+		Gases[4] = 0
+		Gases[5] = 0
+	elif MQ2Rs_R0 <=3 and MQ2Rs_R0 > 2.85:
+		Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
+		Gases[1] = MQ2_CH4.Get_PPM(MQ2Rs_R0)
+		Gases[2] = 0
+		Gases[3] = 0
+		Gases[4] = 0
+		Gases[5] = 0
+	elif MQ2Rs_R0 <=2.85 and MQ2Rs_R0 > 2.1:
+		Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
+		Gases[1] = MQ2_CH4.Get_PPM(MQ2Rs_R0)
+		Gases[2] = MQ2_Alch.Get_PPM(MQ2Rs_R0)
+		Gases[3] = 0
+		Gases[4] = 0
+		Gases[5] = 0
+	elif MQ2Rs_R0 <= 2.1 and MQ2Rs_R0 > 1.8:
+		Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
+		Gases[1] = MQ2_CH4.Get_PPM(MQ2Rs_R0)
+		Gases[2] = MQ2_Alch.Get_PPM(MQ2Rs_R0)
+		Gases[3] = MQ2_H2.Get_PPM(MQ2Rs_R0)
+		Gases[4] = 0
+		Gases[5] = 0
+	elif MQ2Rs_R0 <= 1.8 and MQ2Rs_R0 > 1.6:
+		Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
+		Gases[1] = MQ2_CH4.Get_PPM(MQ2Rs_R0)
+		Gases[2] = MQ2_Alch.Get_PPM(MQ2Rs_R0)
+		Gases[3] = MQ2_H2.Get_PPM(MQ2Rs_R0)
+		Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
+		Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
+	elif MQ2Rs_R0 <= 1.6 and MQ2Rs_R0 > 0.69:
+		Gases[0] = 0
+		Gases[1] = MQ2_CH4.Get_PPM(MQ2Rs_R0)
+		Gases[2] = MQ2_Alch.Get_PPM(MQ2Rs_R0)
+		Gases[3] = MQ2_H2.Get_PPM(MQ2Rs_R0)
+		Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
+		Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
+	elif MQ2Rs_R0 <= 0.69 and MQ2Rs_R0 > 0.335:
+		Gases[0] = 0
+		Gases[1] = 0
+		Gases[2] = 0
+		Gases[3] = MQ2_H2.Get_PPM(MQ2Rs_R0)
+		Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
+		Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
+	elif MQ2Rs_R0 <= 0.335 and MQ2Rs_R0 > 0.26:
+		Gases[0] = 0
+		Gases[1] = 0
+		Gases[2] = 0
+		Gases[3] = 0
+		Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
+		Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
+	else:
+		logger.debug("No MQ2PPM correction Done")
+
 def Get_MQ7PPM(MQ7Rs_R0, Gases = []):
-    if MQ7Rs_R0 <= 17 and MQ7Rs_R0 > 15:
-        Gases[0] = MQ7_Alch.Get_PPM(MQ7Rs_R0)
-        Gases[1] = 0
-        Gases[2] = 0
-        Gases[3] = 0
-        Gases[4] = 0           
-    elif MQ7Rs_R0 <=15 and MQ7Rs_R0 > 13:
-        Gases[0] = MQ7_Alch.Get_PPM(MQ7Rs_R0)
-        Gases[1] = MQ7_CH4.Get_PPM(MQ7Rs_R0)
-        Gases[2] = 0
-        Gases[3] = 0
-        Gases[4] = 0
-    elif MQ7Rs_R0 <=13 and MQ7Rs_R0 > 9:
-        Gases[0] = 0
-        Gases[1] = MQ7_CH4.Get_PPM(MQ7Rs_R0)
-        Gases[2] = 0
-        Gases[3] = 0
-        Gases[4] = 0
-    elif MQ7Rs_R0 <= 8.75 and MQ7Rs_R0 > 4.9:
-        Gases[0] = 0
-        Gases[1] = 0
-        Gases[2] = MQ7_LPG.Get_PPM(MQ7Rs_R0)
-        Gases[3] = 0
-        Gases[4] = 0
-    elif MQ7Rs_R0 <= 1.75 and MQ7Rs_R0 > 1.35:
-        Gases[0] = 0
-        Gases[1] = 0
-        Gases[2] = 0
-        Gases[3] = MQ7_CO.Get_PPM(MQ7Rs_R0)
-        Gases[4] = 0
-    elif MQ7Rs_R0 <= 1.35 and MQ7Rs_R0 > 0.092:
-        Gases[0] = 0
-        Gases[1] = 0
-        Gases[2] = 0
-        Gases[3] = MQ7_CO.Get_PPM(MQ7Rs_R0)
-        Gases[4] = MQ7_H2.Get_PPM(MQ7Rs_R0)
-    elif MQ7Rs_R0 <= 0.092 and MQ7Rs_R0 > 0.053:
-        Gases[0] = 0
-        Gases[1] = 0
-        Gases[2] = 0
-        Gases[3] = 0
-        Gases[4] = MQ7_H2.Get_PPM(MQ7Rs_R0)
-'''
-This Function checks the RS/R0 value to select which gas is being detected
-'''           
+	"""
+	This Function checks the RS/R0 value to select which gas is being detected
+	"""
+	if MQ7Rs_R0 <= 17 and MQ7Rs_R0 > 15:
+		Gases[0] = MQ7_Alch.Get_PPM(MQ7Rs_R0)
+		Gases[1] = 0
+		Gases[2] = 0
+		Gases[3] = 0
+		Gases[4] = 0           
+	elif MQ7Rs_R0 <=15 and MQ7Rs_R0 > 13:
+		Gases[0] = MQ7_Alch.Get_PPM(MQ7Rs_R0)
+		Gases[1] = MQ7_CH4.Get_PPM(MQ7Rs_R0)
+		Gases[2] = 0
+		Gases[3] = 0
+		Gases[4] = 0
+	elif MQ7Rs_R0 <=13 and MQ7Rs_R0 > 9:
+		Gases[0] = 0
+		Gases[1] = MQ7_CH4.Get_PPM(MQ7Rs_R0)
+		Gases[2] = 0
+		Gases[3] = 0
+		Gases[4] = 0
+	elif MQ7Rs_R0 <= 8.75 and MQ7Rs_R0 > 4.9:
+		Gases[0] = 0
+		Gases[1] = 0
+		Gases[2] = MQ7_LPG.Get_PPM(MQ7Rs_R0)
+		Gases[3] = 0
+		Gases[4] = 0
+	elif MQ7Rs_R0 <= 1.75 and MQ7Rs_R0 > 1.35:
+		Gases[0] = 0
+		Gases[1] = 0
+		Gases[2] = 0
+		Gases[3] = MQ7_CO.Get_PPM(MQ7Rs_R0)
+		Gases[4] = 0
+	elif MQ7Rs_R0 <= 1.35 and MQ7Rs_R0 > 0.092:
+		Gases[0] = 0
+		Gases[1] = 0
+		Gases[2] = 0
+		Gases[3] = MQ7_CO.Get_PPM(MQ7Rs_R0)
+		Gases[4] = MQ7_H2.Get_PPM(MQ7Rs_R0)
+	elif MQ7Rs_R0 <= 0.092 and MQ7Rs_R0 > 0.053:
+		Gases[0] = 0
+		Gases[1] = 0
+		Gases[2] = 0
+		Gases[3] = 0
+		Gases[4] = MQ7_H2.Get_PPM(MQ7Rs_R0)
+
 def Get_MQ135PPM(MQ135Rs_R0, Gases = []):
-    if MQ135Rs_R0 <= 2.85 and MQ135Rs_R0 > 2.59:
-        Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
-        Gases[1] = 0
-        Gases[2] = 0
-        Gases[3] = 0
-        Gases[4] = 0
-        Gases[5] = 0
-    elif MQ135Rs_R0 <=2.59 and MQ135Rs_R0 > 2.35:
-        Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
-        Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
-        Gases[2] = 0
-        Gases[3] = 0
-        Gases[4] = 0
-        Gases[5] = 0
-    elif MQ135Rs_R0 <=2.35 and MQ135Rs_R0 > 1.91:
-        Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
-        Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
-        Gases[2] = MQ135_CO2.Get_PPM(MQ135Rs_R0)
-        Gases[3] = 0
-        Gases[4] = 0
-        Gases[5] = 0
-    elif MQ135Rs_R0 <= 1.91 and MQ135Rs_R0 > 1.61:
-        Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
-        Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
-        Gases[2] = MQ135_CO2.Get_PPM(MQ135Rs_R0)
-        Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
-        Gases[4] = 0
-        Gases[5] = 0
-    elif MQ135Rs_R0 <= 1.61 and MQ135Rs_R0 > 1.51:
-        Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
-        Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
-        Gases[2] = MQ135_CO2.Get_PPM(MQ135Rs_R0)
-        Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
-        Gases[4] = MQ135_Methly.Get_PPM(MQ135Rs_R0)
-        Gases[5] = 0
-    elif MQ135Rs_R0 <= 1.51 and MQ135Rs_R0 > 1.44:
-        Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
-        Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
-        Gases[2] = MQ135_CO2.Get_PPM(MQ135Rs_R0)
-        Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
-        Gases[4] = MQ135_Methly.Get_PPM(MQ135Rs_R0)
-        Gases[5] = MQ135_Acet.Get_PPM(MQ135Rs_R0)
-    elif MQ135Rs_R0 <= 1.44 and MQ135Rs_R0 > 0.8:
-        Gases[0] = 0
-        Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
-        Gases[2] = MQ135_CO2.Get_PPM(MQ135Rs_R0)
-        Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
-        Gases[4] = MQ135_Methly.Get_PPM(MQ135Rs_R0)
-        Gases[5] = MQ135_Acet.Get_PPM(MQ135Rs_R0)           
-    elif MQ135Rs_R0 <= 0.8 and MQ135Rs_R0 > 0.585:
-        Gases[0] = 0
-        Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
-        Gases[2] = 0
-        Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
-        Gases[4] = MQ135_Methly.Get_PPM(MQ135Rs_R0)
-        Gases[5] = MQ135_Acet.Get_PPM(MQ135Rs_R0)
+	"""
+	This Function checks the RS/R0 value to select which gas is being detected
+	"""           
+	if MQ135Rs_R0 <= 2.85 and MQ135Rs_R0 > 2.59:
+		Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
+		Gases[1] = 0
+		Gases[2] = 0
+		Gases[3] = 0
+		Gases[4] = 0
+		Gases[5] = 0
+	elif MQ135Rs_R0 <=2.59 and MQ135Rs_R0 > 2.35:
+		Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
+		Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
+		Gases[2] = 0
+		Gases[3] = 0
+		Gases[4] = 0
+		Gases[5] = 0
+	elif MQ135Rs_R0 <=2.35 and MQ135Rs_R0 > 1.91:
+		Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
+		Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
+		Gases[2] = MQ135_CO2.Get_PPM(MQ135Rs_R0)
+		Gases[3] = 0
+		Gases[4] = 0
+		Gases[5] = 0
+	elif MQ135Rs_R0 <= 1.91 and MQ135Rs_R0 > 1.61:
+		Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
+		Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
+		Gases[2] = MQ135_CO2.Get_PPM(MQ135Rs_R0)
+		Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
+		Gases[4] = 0
+		Gases[5] = 0
+	elif MQ135Rs_R0 <= 1.61 and MQ135Rs_R0 > 1.51:
+		Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
+		Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
+		Gases[2] = MQ135_CO2.Get_PPM(MQ135Rs_R0)
+		Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
+		Gases[4] = MQ135_Methly.Get_PPM(MQ135Rs_R0)
+		Gases[5] = 0
+	elif MQ135Rs_R0 <= 1.51 and MQ135Rs_R0 > 1.44:
+		Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
+		Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
+		Gases[2] = MQ135_CO2.Get_PPM(MQ135Rs_R0)
+		Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
+		Gases[4] = MQ135_Methly.Get_PPM(MQ135Rs_R0)
+		Gases[5] = MQ135_Acet.Get_PPM(MQ135Rs_R0)
+	elif MQ135Rs_R0 <= 1.44 and MQ135Rs_R0 > 0.8:
+		Gases[0] = 0
+		Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
+		Gases[2] = MQ135_CO2.Get_PPM(MQ135Rs_R0)
+		Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
+		Gases[4] = MQ135_Methly.Get_PPM(MQ135Rs_R0)
+		Gases[5] = MQ135_Acet.Get_PPM(MQ135Rs_R0)           
+	elif MQ135Rs_R0 <= 0.8 and MQ135Rs_R0 > 0.585:
+		Gases[0] = 0
+		Gases[1] = MQ135_NH4.Get_PPM(MQ135Rs_R0)
+		Gases[2] = 0
+		Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
+		Gases[4] = MQ135_Methly.Get_PPM(MQ135Rs_R0)
+		Gases[5] = MQ135_Acet.Get_PPM(MQ135Rs_R0)
 
 def main():
 	init_logger()
@@ -265,21 +275,17 @@ def main():
 	datafile = time.strftime('./Sensly_%d-%m-%Y_%H_%M_%S.csv')
 
 	with open(datafile, 'w+') as f1:
-	    f1.write('Time, Carbon Monoxide PPM, Ammonia PPM, Carbon Dioxide PPM, Methly PPM, Acetone PPM, Methane PPM, LPG PPM, Hydrogen PPM, Propane PPM, PM10 \n')
+		f1.write('Time, Carbon Monoxide PPM, Ammonia PPM, Carbon Dioxide PPM, Methly PPM, Acetone PPM, Methane PPM, LPG PPM, Hydrogen PPM, Propane PPM, PM10 \n')
 
 	try:
 		# Set commands for getting data from snesors 
-		MQ2cmd = 0x01
-		MQ7cmd = 0x02
-		MQ135cmd = 0x03
-		PMcmd = 0x04
 		logger.info("Sensly is warming up please wait for %s seconds" % WARM_UP_TIMEOUT)
 		sleep(WARM_UP_TIMEOUT)
 		logger.info("Heating Completed")
 		while True:
-			data = []
+			log_data = []
 			# Get current time and add data array
-			data.append(time.strftime('%H:%M:%S'))
+			log_data.append(time.strftime('%H:%M:%S'))
 
 			# Reset the PPM value 
 			COPPM = 0
@@ -300,36 +306,42 @@ def main():
 			MQ135_Gases = [COPPM,NH4PPM,CO2PPM,CO2H50HPPM,CH3PPM,CH3_2COPPM]
 
 			# Fetch the current temperatire and humidity
-			temperature = sensor.read_temperature()
-			humidity = sensor.read_humidity()
+			temperature = temp_hum_sensor.read_temperature()
+			logger.debug("Read temperature is %s" % temperature)
+			humidity = temp_hum_sensor.read_humidity()
+			logger.debug("Read humidity is %s" % humidity)
 
 			# Correct the RS/R) ratio to account for temperature and humidity,
 			# Then calculate the PPM for each gas
 			MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2( MQ2cmd, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
+			logger.debug("Getting MQ2 Sensor values")
 			Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
 			
 			MQ7Rs_R0 = MQ7.Corrected_RS_RO( MQ7cmd, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
+			logger.debug("Getting MQ7 Sensor values")
 			Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
 			
 			MQ135Rs_R0 = MQ135.Corrected_RS_RO( MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
+			logger.debug("Getting MQ135 Sensor values")
 			Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
 			
 			# Store the calculated gases in an array
-			data.append(MQ7_Gases[3])
-			data.append(MQ135_Gases[1])
-			data.append(MQ135_Gases[2])
-			data.append(MQ135_Gases[4])
-			data.append(MQ135_Gases[5])
-			data.append(MQ2_Gases[1])
-			data.append(MQ2_Gases[5])
-			data.append(MQ2_Gases[3])
-			data.append(MQ2_Gases[4])
+			log_data.append(MQ7_Gases[3])
+			log_data.append(MQ135_Gases[1])
+			log_data.append(MQ135_Gases[2])
+			log_data.append(MQ135_Gases[4])
+			log_data.append(MQ135_Gases[5])
+			log_data.append(MQ2_Gases[1])
+			log_data.append(MQ2_Gases[5])
+			log_data.append(MQ2_Gases[3])
+			log_data.append(MQ2_Gases[4])
 			
-			data.append(PM.Get_PMDensity(PMcmd))
+			log_data.append(PM.Get_PMDensity(PMcmd))
 
 			# Add the current array to the csv file 
 			with open(datafile, 'a') as f2:
-			    f2.write(','.join(str(d) for d in data) + '\n')
+				logger.debug("Writting to file '%s' datas:%s" % (datafile, log_data))
+				f2.write(','.join(str(d) for d in log_data) + '\n')
 			    
 			sleep(30)
 	except KeyboardInterrupt:
