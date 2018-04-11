@@ -65,7 +65,7 @@ class Sensor:
 
         self.Raw = data[0] 
         self.Raw = (self.Raw<<8) | data[1]
-	logging.debug("Raw Data returned value is %" % self.Raw)
+	logging.debug("Raw Data returned value is %s" % self.Raw)
         return self.Raw
     
     
@@ -94,7 +94,9 @@ class Sensor:
 	 Function to convert the raw data to a resistance value 
     """
     def Get_RS(self,cmd):
-        self.RS = ((float(self.MaxADC)/float(self.Get_rawdata(cmd))-1)*self.RLOAD)
+	raw_data = self.Get_rawdata(cmd)
+        self.RS = ((float(self.MaxADC)/float(raw_data)-1)*self.RLOAD)
+	logging.debug("Raw data %s corrected to %s, should be a resistance value" % (raw_data, self.RS))
         return self.RS
     
     # Function to calculate the RS(Sensor Resistance)/R0(Base Resistance) ratio    

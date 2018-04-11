@@ -173,6 +173,8 @@ def Get_MQ2PPM(MQ2Rs_R0, Gases = []):
         Gases[3] = 0
         Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
         Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
+    else:
+	logging.debug("No value has been changed into MQ2PPM")
 
 def Get_MQ7PPM(MQ7Rs_R0, Gases = []):
     """This Function checks the RS/R0 value to select which gas is being detected"""
@@ -218,6 +220,8 @@ def Get_MQ7PPM(MQ7Rs_R0, Gases = []):
         Gases[2] = 0
         Gases[3] = 0
         Gases[4] = MQ7_H2.Get_PPM(MQ7Rs_R0)
+    else:
+	logging.debug("No value has been changed into MQ7PPM")
 
 def Get_MQ135PPM(MQ135Rs_R0, Gases = []):
     """This Function checks the RS/R0 value to select which gas is being detected"""
@@ -277,6 +281,8 @@ def Get_MQ135PPM(MQ135Rs_R0, Gases = []):
         Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
         Gases[4] = MQ135_Methly.Get_PPM(MQ135Rs_R0)
         Gases[5] = MQ135_Acet.Get_PPM(MQ135Rs_R0)
+    else:
+	logging.debug("No value has been changed into MQ135PPM")
         
         
 def save_read_data_to_csv():
@@ -292,7 +298,7 @@ def save_read_data_to_csv():
 	directory = os.path.dirname(DATA_FILE_NAME)
 	if not os.path.exists(directory):
 		os.makedirs(directory)
-	logging.debug("Writting data to " + str(datafile))
+	logging.debug("Writting header to " + str(datafile))
 	with open(datafile, 'w+') as f1:
 		f1.write(DATA_FILE_HEADER + '\n')
 
@@ -473,7 +479,7 @@ def MQ2_test():
 	b1 = get_read_byte(retriesCount, waitTimeToRead)
 	b2 = get_read_byte(retriesCount, waitTimeToRead)
 	val = b1<<8|b2
-	logging.debug("Read value is {}).format(val)")
+	logging.debug("======> MQ2 Sensor raw value is %s" % val)
 
 
 """ Reads infos from MQ7"""
@@ -488,7 +494,7 @@ def MQ7_test():
 	b1 = get_read_byte(retriesCount, waitTimeToRead)
 	b2 = get_read_byte(retriesCount, waitTimeToRead)
 	val = b1<<8|b2
-	logging.debug("Read value is {}).format(val)")
+	logging.debug("======> MQ7 Sensor raw value is %s" % val)
 
 
 """ Reads infos from MQ135"""
@@ -503,7 +509,7 @@ def MQ135_test():
 	b1 = get_read_byte(retriesCount, waitTimeToRead)
 	b2 = get_read_byte(retriesCount, waitTimeToRead)
 	val = b1<<8|b2
-	logging.debug("Read value is {}).format(val)")
+	logging.debug("======> MQ135 Sensor raw value is %s" % val)
 
 
 def LED_test():
@@ -528,6 +534,6 @@ except KeyboardInterrupt:
 	logging.info("You pressed Ctrl+C, Bye")
 finally:
 	logging.info("You can check your data into " + DATA_FILE_NAME) 
-	GPIO.cleanup() #resets any ports you have used in this program back to input mode
+	#GPIO.cleanup() #resets any ports you have used in this program back to input mode
 
  
