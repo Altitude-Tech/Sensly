@@ -1,7 +1,7 @@
 # ****************************************************************************************************
 # Written by Sam Onwugbenu sam@altitude.pw founder of Altitude.tech
 #
-# 	Eddited by Philippe Gachoud ph.gachoud@gmail.com on 201711
+# 	Edited by Philippe Gachoud ph.gachoud@gmail.com on 201711
 #		For bug fixings and code commenting & readability
 #
 # For all values R0 is resistance in fresh air, Rs is sensor resistance in certain concentration of gas
@@ -12,7 +12,10 @@ import smbus
 
 import RPi.GPIO as GPIO
 from Sensors import * 
-import Adafruit_BME280
+try:
+    import Adafruit_BME280
+except ImportError:
+    raise ImportError('Unable to import Adafruit_BME280, check it out @ https://github.com/adafruit/Adafruit_Python_BME280')
 import logging
 import sys
 import os
