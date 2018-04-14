@@ -177,7 +177,7 @@ def Get_MQ2PPM(MQ2Rs_R0, Gases = []):
         Gases[4] = MQ2_Prop.Get_PPM(MQ2Rs_R0)
         Gases[5] = MQ2_LPG.Get_PPM(MQ2Rs_R0)
     else:
-	logging.debug("No value has been changed into MQ2PPM")
+      	logging.debug("No value has been changed into MQ2PPM")
 
 def Get_MQ7PPM(MQ7Rs_R0, Gases = []):
     """This Function checks the RS/R0 value to select which gas is being detected"""
@@ -224,7 +224,7 @@ def Get_MQ7PPM(MQ7Rs_R0, Gases = []):
         Gases[3] = 0
         Gases[4] = MQ7_H2.Get_PPM(MQ7Rs_R0)
     else:
-	logging.debug("No value has been changed into MQ7PPM")
+    	logging.debug("No value has been changed into MQ7PPM")
 
 def Get_MQ135PPM(MQ135Rs_R0, Gases = []):
     """This Function checks the RS/R0 value to select which gas is being detected"""
@@ -451,7 +451,7 @@ def get_read_byte(retriesCount, waitTimeBetweenTwoRead):
 		except IOError:
 			logging.warn("IO Error trying to read byte on HAT after '{}'times".format(i))
 		except:
-			logging.error("Unexpected error:", sys.exc_info()[0])
+			logging.exception("Unexpected error:", sys.exc_info()[0])
 			raise
 
 	return result	
