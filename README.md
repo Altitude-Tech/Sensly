@@ -54,19 +54,43 @@ Options:
 
 ## Calibrating
 
-Put the HAT in clean air and run:
+The PPM figures depend on each sensor's clean-air resistance (R0), which
+differs from board to board. The built-in defaults came from the original
+author's HAT, so calibrate once your own has been running for a day:
 
 ```bash
+sudo systemctl stop sensly
 python3 Sensly_Calibration.py
+sudo systemctl start sensly
 ```
 
-It warms up for 10 minutes, then prints and logs a running R0 estimate for
-each sensor. Let it run until the values settle, press Ctrl-C, and copy the
-printed `R0 = [...]` line into the `R0` list near the top of `Sensly.py`.
+Put the HAT somewhere with clean air first: a ventilated room away from
+cooking, smoke, solvents and people breathing on it. The script warms up for
+10 minutes, samples for an hour, and writes the R0 values into `sensly.conf`.
+The logger reads them from there on its next start. Repeat every few months,
+as MQ sensors drift with age.
+
+## Temperature and humidity offsets
+
+The BME280 sits next to three heated gas sensors and reads warm. The
+`[calibration]` section of `sensly.conf` has `temperature_offset` and
+`humidity_offset` values that are added to its readings. Compare against a
+trusted thermometer in the same room after the HAT has been running for an
+hour and set the difference there. The default offset of -10.6 C is what the
+original author used with the HAT stacked directly on a Pi.
+
+## Optional particulate sensor
+
+The HAT has a "PM 2.5 Header" for an external dust sensor. If nothing is
+plugged into it, set `pm_attached = no` under `[sensors]` in `sensly.conf`
+so a meaningless PM10 reading of zero is not logged or sent to Home
+Assistant.
 
 ## Home Assistant
 
-The logger can publish every reading to Home Assistant over MQTT. It uses
+The logger can publish every reading to Home Assistant over MQTT. Temperature,
+humidity and pressure are sent from the moment it starts; the gas readings
+show as unknown until the warm-up finishes. It uses
 MQTT discovery, so the sensors appear on their own under a "Sensly HAT"
 device with the right units and icons. No Home Assistant configuration
 changes are needed beyond having the Mosquitto broker add-on and the MQTT

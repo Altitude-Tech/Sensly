@@ -29,7 +29,8 @@ def Reset():
 
 # Sensly Constants 
 R0 = [3120.5010, 1258.8822, 2786.3375]      # MQ2, MQ7, MQ135 R0 resistance (needed for PPM calculation).
-                                            # Found by placing the Sensor in a clean air environment and running the calibration script
+                                            # Defaults from the original author's board. Run Sensly_Calibration.py
+                                            # in clean air to measure your own; it stores them in sensly.conf.
 RSAir = [9.5,27,3.62]                       # Sensor RS/R0 ratio in clean air
 
 
@@ -252,8 +253,11 @@ MQ7_MAX_VALID_RATIO = 1000.0
 _last_valid_mq7 = None
 
 
-def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd):
-    """Read every sensor once and return a dict of calculated values."""
+def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd, config, warm=True):
+    """Read every sensor once and return a dict of calculated values.
+
+    While warm is False (sensors still heating) the gas values are None.
+    """
     global _last_valid_mq7
     # Initialise the gases in an array (all PPM values start at 0)
     MQ2_Gases = [0, 0, 0, 0, 0, 0]      # CO, CH4, Alcohol, H2, Propane, LPG
@@ -261,8 +265,8 @@ def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd):
     MQ135_Gases = [0, 0, 0, 0, 0, 0]    # CO, NH4, CO2, Ethanol, Methly, Acetone
 
     # Fetch the current temperature, humidity and pressure
-    temperature = sensor.read_temperature()
-    humidity = sensor.read_humidity()
+    temperature = sensor.read_temperature() + config['temperature_offset']
+    humidity = min(100.0, max(0.0, sensor.read_humidity() + config['humidity_offset']))
     pressure = sensor.read_pressure() / 100.0   # Pa -> hPa
 
     # Correct the RS/R0 ratio to account for temperature and humidity,
@@ -282,46 +286,83 @@ def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd):
     MQ135Rs_R0 = MQ135.Corrected_RS_RO(MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
     Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
 
-    pm10 = PM.Get_PMDensity(PMcmd)
+    pm10 = PM.Get_PMDensity(PMcmd) if config['pm_attached'] else None
 
-    return {
+    def gas(value):
+        return round(value, 2) if warm else None
+
+    reading = {
         'temperature': round(temperature, 2),
         'humidity': round(humidity, 1),
         'pressure': round(pressure, 1),
-        'co': round(MQ7_Gases[3], 2),
-        'nh3': round(MQ135_Gases[1], 2),
-        'co2': round(MQ135_Gases[2], 2),
-        'methyl': round(MQ135_Gases[4], 2),
-        'acetone': round(MQ135_Gases[5], 2),
-        'methane': round(MQ2_Gases[1], 2),
-        'lpg': round(MQ2_Gases[5], 2),
-        'hydrogen': round(MQ2_Gases[3], 2),
-        'propane': round(MQ2_Gases[4], 2),
-        'pm10': round(pm10, 2),
+        'co': gas(MQ7_Gases[3]),
+        'nh3': gas(MQ135_Gases[1]),
+        'co2': gas(MQ135_Gases[2]),
+        'methyl': gas(MQ135_Gases[4]),
+        'acetone': gas(MQ135_Gases[5]),
+        'methane': gas(MQ2_Gases[1]),
+        'lpg': gas(MQ2_Gases[5]),
+        'hydrogen': gas(MQ2_Gases[3]),
+        'propane': gas(MQ2_Gases[4]),
         'mq2_ratio': round(MQ2Rs_R0, 4),
         'mq7_ratio': round(MQ7Rs_R0, 4) if MQ7Rs_R0 is not None else None,
         'mq135_ratio': round(MQ135Rs_R0, 4),
     }
+    if config['pm_attached']:
+        reading['pm10'] = round(pm10, 2) if warm else None
+    return reading
 
 
-def load_mqtt_config(path):
-    """Read the [mqtt] section of the config file into a dict."""
-    if not os.path.exists(path):
-        sys.exit("MQTT config file not found: %s\n"
-                 "Copy sensly.conf.example to sensly.conf and fill in your broker details." % path)
+# Default temperature offset in degrees C. The BME280 sits next to three
+# heated gas sensors and reads warm; this is subtracted from its reading.
+# The original Sensly code used -10.63 for a HAT stacked on a Pi. Override
+# it (and the humidity offset) in sensly.conf under [calibration].
+DEFAULT_TEMPERATURE_OFFSET = -10.633
+DEFAULT_HUMIDITY_OFFSET = 0.0
+
+
+def load_config(path, need_mqtt=False):
+    """Read sensly.conf. Missing file or sections fall back to defaults."""
     parser = configparser.ConfigParser()
-    parser.read(path)
-    if 'mqtt' not in parser:
+    if os.path.exists(path):
+        parser.read(path)
+    elif need_mqtt:
+        sys.exit("Config file not found: %s\n"
+                 "Copy sensly.conf.example to sensly.conf and fill in your broker details." % path)
+
+    mqtt = parser['mqtt'] if 'mqtt' in parser else {}
+    cal = parser['calibration'] if 'calibration' in parser else {}
+    sensors = parser['sensors'] if 'sensors' in parser else {}
+
+    def getfloat(section, key, default):
+        try:
+            return float(section.get(key, default))
+        except (TypeError, ValueError):
+            sys.exit("Bad number for %s in %s" % (key, path))
+
+    def getbool(section, key, default):
+        value = str(section.get(key, default)).strip().lower()
+        return value in ('1', 'yes', 'true', 'on')
+
+    if need_mqtt and not mqtt:
         sys.exit("No [mqtt] section in %s" % path)
-    section = parser['mqtt']
+
     return {
-        'host': section.get('host', 'homeassistant.local'),
-        'port': section.getint('port', 1883),
-        'username': section.get('username', '') or None,
-        'password': section.get('password', '') or None,
-        'device_id': section.get('device_id', 'sensly_hat'),
-        'device_name': section.get('device_name', 'Sensly HAT'),
-        'discovery_prefix': section.get('discovery_prefix', 'homeassistant'),
+        'mqtt': {
+            'host': mqtt.get('host', 'homeassistant.local'),
+            'port': int(mqtt.get('port', 1883)),
+            'username': mqtt.get('username', '') or None,
+            'password': mqtt.get('password', '') or None,
+            'device_id': mqtt.get('device_id', 'sensly_hat'),
+            'device_name': mqtt.get('device_name', 'Sensly HAT'),
+            'discovery_prefix': mqtt.get('discovery_prefix', 'homeassistant'),
+        },
+        'temperature_offset': getfloat(cal, 'temperature_offset', DEFAULT_TEMPERATURE_OFFSET),
+        'humidity_offset': getfloat(cal, 'humidity_offset', DEFAULT_HUMIDITY_OFFSET),
+        'r0_mq2': getfloat(cal, 'r0_mq2', R0[0]),
+        'r0_mq7': getfloat(cal, 'r0_mq7', R0[1]),
+        'r0_mq135': getfloat(cal, 'r0_mq135', R0[2]),
+        'pm_attached': getbool(sensors, 'pm_attached', 'yes'),
     }
 
 
@@ -356,35 +397,50 @@ def main():
     MQ135cmd = 0x03
     PMcmd = 0x04
 
+    config = load_config(args.config, need_mqtt=args.mqtt)
+    # Calibrated R0 values from sensly.conf override the built-in defaults
+    MQ2.R0 = config['r0_mq2']
+    MQ7.R0 = config['r0_mq7']
+    MQ135.R0 = config['r0_mq135']
+    print("Using R0: MQ2=%.1f MQ7=%.1f MQ135=%.1f" % (MQ2.R0, MQ7.R0, MQ135.R0), flush=True)
+
     publisher = None
     if args.mqtt:
         from sensly_mqtt import SenslyMQTT
-        publisher = SenslyMQTT(load_mqtt_config(args.config))
+        publisher = SenslyMQTT(config['mqtt'], include_pm=config['pm_attached'])
         publisher.connect()
 
+    started = time.monotonic()
+    warm = args.warmup <= 0
+    if not warm:
+        print("Sensly is warming up, gas readings start in %d minutes" % (args.warmup // 60), flush=True)
+
     try:
-        if args.warmup > 0:
-            print("Sensly is warming up, please wait %d minutes" % (args.warmup // 60), flush=True)
-            time.sleep(args.warmup)
-            print("Heating completed", flush=True)
-
         while True:
-            reading = take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd)
+            if not warm and time.monotonic() - started >= args.warmup:
+                warm = True
+                print("Heating completed", flush=True)
 
-            # CSV row, same column order as the header line
-            data = [
-                time.strftime('%H:%M:%S'),
-                reading['co'], reading['nh3'], reading['co2'], reading['methyl'],
-                reading['acetone'], reading['methane'], reading['lpg'],
-                reading['hydrogen'], reading['propane'], reading['pm10'],
-            ]
-            with open(datafile, 'a') as f2:
-                f2.write(','.join(str(d) for d in data) + '\n')
+            reading = take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd, config, warm)
+            now = time.strftime('%H:%M:%S')
+
+            if warm:
+                # CSV row, same column order as the header line
+                data = [
+                    now,
+                    reading['co'], reading['nh3'], reading['co2'], reading['methyl'],
+                    reading['acetone'], reading['methane'], reading['lpg'],
+                    reading['hydrogen'], reading['propane'], reading.get('pm10', ''),
+                ]
+                with open(datafile, 'a') as f2:
+                    f2.write(','.join(str(d) for d in data) + '\n')
+
             mq7 = reading['mq7_ratio']
-            print("%s  T=%.1fC RH=%.0f%%  MQ2=%.3f MQ7=%s MQ135=%.3f  PM=%.1f"
-                  % (data[0], reading['temperature'], reading['humidity'],
+            print("%s  T=%.1fC RH=%.0f%%  MQ2=%.3f MQ7=%s MQ135=%.3f%s"
+                  % (now, reading['temperature'], reading['humidity'],
                      reading['mq2_ratio'], "%.3f" % mq7 if mq7 is not None else "warming",
-                     reading['mq135_ratio'], reading['pm10']), flush=True)
+                     reading['mq135_ratio'],
+                     "  PM=%s" % reading['pm10'] if 'pm10' in reading else ""), flush=True)
 
             if publisher is not None:
                 publisher.publish(reading)

@@ -49,8 +49,9 @@ def _make_client(client_id):
 
 class SenslyMQTT:
 
-    def __init__(self, config):
+    def __init__(self, config, include_pm=True):
         self.config = config
+        self.include_pm = include_pm
         self.device_id = config['device_id']
         self.state_topic = 'sensly/%s/state' % self.device_id
         self.availability_topic = 'sensly/%s/status' % self.device_id
@@ -96,6 +97,11 @@ class SenslyMQTT:
         }
         prefix = self.config['discovery_prefix']
         for key, (name, unit, device_class, state_class, icon, category) in SENSORS.items():
+            topic = '%s/sensor/%s/%s/config' % (prefix, self.device_id, key)
+            if key == 'pm10' and not self.include_pm:
+                # No PM sensor attached: clear any previously retained discovery
+                self.client.publish(topic, '', retain=True)
+                continue
             payload = {
                 'name': name,
                 'unique_id': '%s_%s' % (self.device_id, key),
@@ -116,7 +122,6 @@ class SenslyMQTT:
                 payload['icon'] = icon
             if category:
                 payload['entity_category'] = category
-            topic = '%s/sensor/%s/%s/config' % (prefix, self.device_id, key)
             self.client.publish(topic, json.dumps(payload), retain=True)
         self._discovery_sent = True
 

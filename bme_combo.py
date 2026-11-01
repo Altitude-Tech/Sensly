@@ -192,7 +192,7 @@ class BME280(object):
         var2 = ((UT / 131072.0 - self.dig_T1 / 8192.0) * (
         UT / 131072.0 - self.dig_T1 / 8192.0)) * float(self.dig_T3)
         self.t_fine = int(var1 + var2)
-        temp = ((var1 + var2) / 5120.0) - 9.3647 - 1.268279
+        temp = (var1 + var2) / 5120.0
         return temp
     def read_pressure(self):
         """Gets the compensated pressure in Pascals."""

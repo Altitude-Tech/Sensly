@@ -1,27 +1,57 @@
 #!/usr/bin/env python3
 """Sensly HAT calibration script.
 
-Run this with the HAT in clean air. It averages the sensor resistance over
-many samples and writes the running R0 estimate for each MQ sensor to a CSV
-file. Copy the final values into the R0 list at the top of Sensly.py.
+Run this with the HAT in clean air (a well-ventilated room, or outdoors,
+away from cooking, smoke, solvents and people breathing on it). It averages
+the sensor resistance over many samples and tracks a running R0 estimate
+for each MQ sensor. When it finishes it writes the values into sensly.conf
+so Sensly.py picks them up on its next start.
 
 Usage:
-    python3 Sensly_Calibration.py              # 10 minute warm-up
-    python3 Sensly_Calibration.py --warmup 0   # skip warm-up
+    sudo systemctl stop sensly                 # the logger must not be using the HAT
+    python3 Sensly_Calibration.py              # 10 min warm-up, then 60 min of sampling
+    sudo systemctl start sensly
+
+    python3 Sensly_Calibration.py --warmup 0 --duration 600   # quick 10 minute run
+    python3 Sensly_Calibration.py --duration 0                # run until Ctrl-C
 """
 
 import argparse
+import configparser
+import os
 import time
 
 from Sensors import Sensor, reset_hat
+
+DEFAULT_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sensly.conf")
+
+
+def save_r0(path, r0_mq2, r0_mq7, r0_mq135):
+    """Write the R0 values into the [calibration] section of the config file."""
+    parser = configparser.ConfigParser()
+    if os.path.exists(path):
+        parser.read(path)
+    if 'calibration' not in parser:
+        parser['calibration'] = {}
+    parser['calibration']['r0_mq2'] = "%.4f" % r0_mq2
+    parser['calibration']['r0_mq7'] = "%.4f" % r0_mq7
+    parser['calibration']['r0_mq135'] = "%.4f" % r0_mq135
+    with open(path, 'w') as f:
+        parser.write(f)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Calibrate the Sensly HAT MQ sensors in clean air.")
     parser.add_argument("--warmup", type=int, default=600,
                         help="seconds to let the MQ sensors heat up before sampling (default: 600)")
+    parser.add_argument("--duration", type=int, default=3600,
+                        help="seconds to sample for before saving (default: 3600, 0 = until Ctrl-C)")
     parser.add_argument("--samples", type=int, default=300,
                         help="samples per averaging window (default: 300)")
+    parser.add_argument("--config", default=DEFAULT_CONFIG,
+                        help="config file to write the R0 values into (default: sensly.conf next to this script)")
+    parser.add_argument("--no-save", action="store_true",
+                        help="only print the values, do not write the config file")
     args = parser.parse_args()
 
     # Reset Sensly HAT
@@ -29,13 +59,12 @@ def main():
     time.sleep(1)
 
     # Sensly Constants
-    R0 = [0, 0, 0]
-    RSAir = [9.5, 27, 3.62]
+    RSAir = [9.5, 27, 3.62]     # RS/R0 ratio of each sensor in clean air, from the datasheets
     Cal_Sample_Time = args.samples
 
-    MQ2 = Sensor('MQ2', R0[0], RSAir[0])  # name, Calibrated R0 value, RS/R0 ratio in clean air
-    MQ7 = Sensor('MQ7', R0[1], RSAir[1])
-    MQ135 = Sensor('MQ135', R0[2], RSAir[2])
+    MQ2 = Sensor('MQ2', 0, RSAir[0])
+    MQ7 = Sensor('MQ7', 0, RSAir[1])
+    MQ135 = Sensor('MQ135', 0, RSAir[2])
 
     datafile = time.strftime('./Sensly_Calibration_%d-%m-%Y_%H_%M_%S.csv')
     with open(datafile, 'w') as f1:
@@ -47,57 +76,70 @@ def main():
     MQ7cmd = 0x02
     MQ135cmd = 0x03
 
-    # Initialise the last stored R0 value used for the running average
-    L_AvRs_MQ2 = 0
-    L_AvRs_MQ7 = 0
-    L_AvRs_MQ135 = 0
+    # Running averages (None until the first window completes)
+    r0_mq2 = r0_mq7 = r0_mq135 = None
+    windows = 0
 
     try:
         if args.warmup > 0:
             print("Warming up for %d minutes" % (args.warmup // 60), flush=True)
             time.sleep(args.warmup)
-            print("Heating completed, calibrating (Ctrl-C to stop)", flush=True)
+        if args.duration > 0:
+            print("Heating completed, calibrating for %d minutes (Ctrl-C to stop early and save)"
+                  % (args.duration // 60), flush=True)
+        else:
+            print("Heating completed, calibrating until Ctrl-C", flush=True)
+        started = time.monotonic()
 
-        while True:
-            data = []
-            data.append(time.strftime('%H:%M:%S'))
+        while args.duration <= 0 or time.monotonic() - started < args.duration:
+            AvRs_MQ2 = AvRs_MQ7 = AvRs_MQ135 = 0.0
+            valid_mq7 = 0
 
-            AvRs_MQ2 = 0
-            AvRs_MQ7 = 0
-            AvRs_MQ135 = 0
-
-            # Run calibration
             for _ in range(Cal_Sample_Time):
-                AvRs_MQ2 = AvRs_MQ2 + MQ2.Get_RS(MQ2cmd)
+                AvRs_MQ2 += MQ2.Get_RS(MQ2cmd)
                 time.sleep(0.01)
-                AvRs_MQ7 = AvRs_MQ7 + MQ7.Get_RS(MQ7cmd)
+                rs7 = MQ7.Get_RS(MQ7cmd)
+                # Skip MQ7 samples taken during its heater's high phase
+                if rs7 < 1e7:
+                    AvRs_MQ7 += rs7
+                    valid_mq7 += 1
                 time.sleep(0.01)
-                AvRs_MQ135 = AvRs_MQ135 + MQ135.Get_RS(MQ135cmd)
+                AvRs_MQ135 += MQ135.Get_RS(MQ135cmd)
                 time.sleep(0.01)
-            AvRs_MQ2 = AvRs_MQ2 / Cal_Sample_Time
-            AvRs_MQ7 = AvRs_MQ7 / Cal_Sample_Time
-            AvRs_MQ135 = AvRs_MQ135 / Cal_Sample_Time
 
-            # Find R0 (running average with the previous estimate)
-            MQ2.R0 = ((AvRs_MQ2 / MQ2.RSAIR) + L_AvRs_MQ2) / 2
-            MQ7.R0 = ((AvRs_MQ7 / MQ7.RSAIR) + L_AvRs_MQ7) / 2
-            MQ135.R0 = ((AvRs_MQ135 / MQ135.RSAIR) + L_AvRs_MQ135) / 2
+            AvRs_MQ2 /= Cal_Sample_Time
+            AvRs_MQ135 /= Cal_Sample_Time
+            AvRs_MQ7 = AvRs_MQ7 / valid_mq7 if valid_mq7 else None
 
-            L_AvRs_MQ2 = MQ2.R0
-            L_AvRs_MQ7 = MQ7.R0
-            L_AvRs_MQ135 = MQ135.R0
+            # Cumulative running average of R0 = RS_air / (RS/R0 in clean air)
+            windows += 1
+            new2 = AvRs_MQ2 / MQ2.RSAIR
+            new135 = AvRs_MQ135 / MQ135.RSAIR
+            r0_mq2 = new2 if r0_mq2 is None else r0_mq2 + (new2 - r0_mq2) / windows
+            r0_mq135 = new135 if r0_mq135 is None else r0_mq135 + (new135 - r0_mq135) / windows
+            if AvRs_MQ7 is not None:
+                new7 = AvRs_MQ7 / MQ7.RSAIR
+                r0_mq7 = new7 if r0_mq7 is None else r0_mq7 + (new7 - r0_mq7) / windows
 
-            data.append(MQ2.R0)
-            data.append(MQ7.R0)
-            data.append(MQ135.R0)
-
+            now = time.strftime('%H:%M:%S')
             with open(datafile, 'a') as f2:
-                f2.write(','.join(str(d) for d in data) + '\n')
-            print("%s  R0: MQ2=%.1f MQ7=%.1f MQ135=%.1f" % (data[0], MQ2.R0, MQ7.R0, MQ135.R0), flush=True)
+                f2.write('%s,%s,%s,%s\n' % (now, r0_mq2, r0_mq7, r0_mq135))
+            print("%s  R0: MQ2=%.1f MQ7=%s MQ135=%.1f"
+                  % (now, r0_mq2, "%.1f" % r0_mq7 if r0_mq7 is not None else "waiting", r0_mq135),
+                  flush=True)
 
     except KeyboardInterrupt:
-        print("Bye")
-        print("Final R0 values -> R0 = [%.4f, %.4f, %.4f]" % (MQ2.R0, MQ7.R0, MQ135.R0))
+        print("Stopped early", flush=True)
+
+    if r0_mq2 is None or r0_mq7 is None or r0_mq135 is None:
+        print("Not enough samples to calibrate. Let it run longer.")
+        return
+
+    print("Final R0 values: MQ2=%.4f MQ7=%.4f MQ135=%.4f" % (r0_mq2, r0_mq7, r0_mq135))
+    if args.no_save:
+        return
+    save_r0(args.config, r0_mq2, r0_mq7, r0_mq135)
+    print("Saved to %s. Restart the logger with:  sudo systemctl restart sensly" % args.config)
 
 
 if __name__ == "__main__":
