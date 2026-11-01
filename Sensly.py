@@ -1,21 +1,30 @@
-import smbus 
-from time import *
+#!/usr/bin/env python3
+"""Sensly HAT air-quality logger.
 
-import RPi.GPIO as GPIO
-from Sensors import Sensor, Gas
-from bme_combo import *
+Logs gas PPM values and particulate density to a timestamped CSV file.
+Python 3 port for Raspberry Pi 4 running Raspberry Pi OS Bookworm or later.
+
+Usage:
+    python3 Sensly.py                 # 15 minute warm-up, sample every 30 s
+    python3 Sensly.py --warmup 0      # skip warm-up (readings will be off)
+    python3 Sensly.py --interval 10   # sample every 10 s
+    python3 Sensly.py --mqtt          # also publish to Home Assistant via MQTT
+                                      # (broker settings in sensly.conf)
+"""
+
+import argparse
+import configparser
+import os
+import sys
+import time
+
+from Sensors import Sensor, Gas, reset_hat
+from bme_combo import BME280, BME280_OSAMPLE_8
+
 
 def Reset():
-    GPIO.setmode(GPIO.BCM) ## Use BCM numbering
-    GPIO.setup(23, GPIO.OUT)
-
-    # Reset Sensly HAT
-    GPIO.output(23, False) ## Set GPIO Pin 23 to low
-    time.sleep(0.5)
-    GPIO.output(23, True) ## Set GPIO Pin 23 to low
-    # Clean up the GPIO pins 
-    GPIO.cleanup()
-
+    """Reset the Sensly HAT via its reset line (GPIO 23)."""
+    reset_hat(0.5)
 
 
 # Sensly Constants 
@@ -43,19 +52,7 @@ MQ7_t_85H = [-0.00000481,0.0003916,-0.01267189,0.99930744]
 MQ135_t_33H = [-0.00000042,0.00036988,-0.02723828,1.40020563]
 MQ135_t_85H = [-0.0000002,0.00028254,-0.02388492,1.27309524]
 
-#Initalise the gases
-
-COPPM = 0
-NH4PPM = 0
-CO2PPM = 0
-CO2H50HPPM = 0
-CH3PPM = 0
-CH3_2COPPM = 0
-AlchPPM = 0
-CH4PPM = 0
-LPGPPM = 0
-H2PPM = 0
-PropPPM = 0
+# Initialise the gases
 
 MQ2_H2 = Gas('MQ2_H2', 0.3222, -0.4750, -2.0588, 3.017, 100, LED) # name, rs_r0_ratio max value, rs_r0_ratio max value, gas conversion formula gradient, gas conversion formula intercept, threshold, LED Colour
 MQ2_LPG = Gas('MQ2_LPG', 0.2304, -0.5850, -2.0626, 2.808, 1000, LED)
@@ -77,14 +74,12 @@ MQ135_Ethan = Gas('MQ135_Ethanol', 0.2810, -0.1337, -3.1616, 1.8939, 1000, LED)
 MQ135_Methly = Gas('MQ135_Methly', 0.2068, -0.1938, -3.2581, 1.6759, 1000, LED)
 MQ135_Acet = Gas('MQ135_Acetone', 0.1790, -0.2328, -3.1878, 1.577, 100, LED)
 
-sensor = BME280(mode=BME280_OSAMPLE_8)
-
 #functions
    
 '''
 This Function checks the RS/R0 value to select which gas is being detected
 '''
-def Get_MQ2PPM(MQ2Rs_R0, Gases = []):
+def Get_MQ2PPM(MQ2Rs_R0, Gases):
     if MQ2Rs_R0 <= 5.2 and MQ2Rs_R0 > 3:
         Gases[0] = MQ2_CO.Get_PPM(MQ2Rs_R0)
         Gases[1] = 0
@@ -144,7 +139,7 @@ def Get_MQ2PPM(MQ2Rs_R0, Gases = []):
 '''
 This Function checks the RS/R0 value to select which gas is being detected
 '''
-def Get_MQ7PPM(MQ7Rs_R0, Gases = []):
+def Get_MQ7PPM(MQ7Rs_R0, Gases):
     if MQ7Rs_R0 <= 17 and MQ7Rs_R0 > 15:
         Gases[0] = MQ7_Alch.Get_PPM(MQ7Rs_R0)
         Gases[1] = 0
@@ -190,7 +185,7 @@ def Get_MQ7PPM(MQ7Rs_R0, Gases = []):
 '''
 This Function checks the RS/R0 value to select which gas is being detected
 '''           
-def Get_MQ135PPM(MQ135Rs_R0, Gases = []):
+def Get_MQ135PPM(MQ135Rs_R0, Gases):
     if MQ135Rs_R0 <= 2.85 and MQ135Rs_R0 > 2.59:
         Gases[0] = MQ135_CO.Get_PPM(MQ135Rs_R0)
         Gases[1] = 0
@@ -247,84 +242,161 @@ def Get_MQ135PPM(MQ135Rs_R0, Gases = []):
         Gases[3] = MQ135_Ethan.Get_PPM(MQ135Rs_R0)
         Gases[4] = MQ135_Methly.Get_PPM(MQ135Rs_R0)
         Gases[5] = MQ135_Acet.Get_PPM(MQ135Rs_R0)
-        
-        
-Reset()
-datafile = time.strftime('./Sensly_%d-%m-%Y_%H_%M_%S.csv')
 
-with open(datafile, 'w+') as f1:
-    f1.write('Time, Carbon Monoxide PPM, Ammonia PPM, Carbon Dioxide PPM, Methly PPM, Acetone PPM, Methane PPM, LPG PPM, Hydrogen PPM, Propane PPM, PM10 \n')
 
-try:
-    # Set commands for getting data from snesors 
+# The MQ7 heater is cycled by the HAT firmware (high heat to clean the
+# sensor, then low heat to measure). During the high-heat phase the sensor
+# reads almost zero, giving an RS/R0 ratio in the tens of thousands. Ratios
+# above this limit are treated as invalid and the last good value is kept.
+MQ7_MAX_VALID_RATIO = 1000.0
+_last_valid_mq7 = None
+
+
+def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd):
+    """Read every sensor once and return a dict of calculated values."""
+    global _last_valid_mq7
+    # Initialise the gases in an array (all PPM values start at 0)
+    MQ2_Gases = [0, 0, 0, 0, 0, 0]      # CO, CH4, Alcohol, H2, Propane, LPG
+    MQ7_Gases = [0, 0, 0, 0, 0]         # Alcohol, CH4, LPG, CO, H2
+    MQ135_Gases = [0, 0, 0, 0, 0, 0]    # CO, NH4, CO2, Ethanol, Methly, Acetone
+
+    # Fetch the current temperature, humidity and pressure
+    temperature = sensor.read_temperature()
+    humidity = sensor.read_humidity()
+    pressure = sensor.read_pressure() / 100.0   # Pa -> hPa
+
+    # Correct the RS/R0 ratio to account for temperature and humidity,
+    # then calculate the PPM for each gas
+    MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2(MQ2cmd, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
+    Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
+
+    MQ7Rs_R0 = MQ7.Corrected_RS_RO(MQ7cmd, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
+    if MQ7Rs_R0 > MQ7_MAX_VALID_RATIO:
+        # Heater in its high phase: hold the previous valid reading
+        MQ7Rs_R0 = _last_valid_mq7
+    else:
+        _last_valid_mq7 = MQ7Rs_R0
+    if MQ7Rs_R0 is not None:
+        Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
+
+    MQ135Rs_R0 = MQ135.Corrected_RS_RO(MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
+    Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
+
+    pm10 = PM.Get_PMDensity(PMcmd)
+
+    return {
+        'temperature': round(temperature, 2),
+        'humidity': round(humidity, 1),
+        'pressure': round(pressure, 1),
+        'co': round(MQ7_Gases[3], 2),
+        'nh3': round(MQ135_Gases[1], 2),
+        'co2': round(MQ135_Gases[2], 2),
+        'methyl': round(MQ135_Gases[4], 2),
+        'acetone': round(MQ135_Gases[5], 2),
+        'methane': round(MQ2_Gases[1], 2),
+        'lpg': round(MQ2_Gases[5], 2),
+        'hydrogen': round(MQ2_Gases[3], 2),
+        'propane': round(MQ2_Gases[4], 2),
+        'pm10': round(pm10, 2),
+        'mq2_ratio': round(MQ2Rs_R0, 4),
+        'mq7_ratio': round(MQ7Rs_R0, 4) if MQ7Rs_R0 is not None else None,
+        'mq135_ratio': round(MQ135Rs_R0, 4),
+    }
+
+
+def load_mqtt_config(path):
+    """Read the [mqtt] section of the config file into a dict."""
+    if not os.path.exists(path):
+        sys.exit("MQTT config file not found: %s\n"
+                 "Copy sensly.conf.example to sensly.conf and fill in your broker details." % path)
+    parser = configparser.ConfigParser()
+    parser.read(path)
+    if 'mqtt' not in parser:
+        sys.exit("No [mqtt] section in %s" % path)
+    section = parser['mqtt']
+    return {
+        'host': section.get('host', 'homeassistant.local'),
+        'port': section.getint('port', 1883),
+        'username': section.get('username', '') or None,
+        'password': section.get('password', '') or None,
+        'device_id': section.get('device_id', 'sensly_hat'),
+        'device_name': section.get('device_name', 'Sensly HAT'),
+        'discovery_prefix': section.get('discovery_prefix', 'homeassistant'),
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Log air-quality data from the Sensly HAT to a CSV file.")
+    parser.add_argument("--warmup", type=int, default=900,
+                        help="seconds to let the MQ sensors heat up before logging (default: 900)")
+    parser.add_argument("--interval", type=float, default=30,
+                        help="seconds between samples (default: 30)")
+    parser.add_argument("--output", default=None,
+                        help="CSV file to write (default: ./Sensly_<date>_<time>.csv)")
+    parser.add_argument("--mqtt", action="store_true",
+                        help="publish readings to Home Assistant over MQTT (see sensly.conf)")
+    parser.add_argument("--config", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "sensly.conf"),
+                        help="config file with MQTT broker settings (default: sensly.conf next to this script)")
+    args = parser.parse_args()
+
+    Reset()
+    # Give the HAT's microcontroller a moment to come back up after reset
+    time.sleep(1)
+
+    sensor = BME280(mode=BME280_OSAMPLE_8)
+
+    datafile = args.output or time.strftime('./Sensly_%d-%m-%Y_%H_%M_%S.csv')
+    with open(datafile, 'w') as f1:
+        f1.write('Time, Carbon Monoxide PPM, Ammonia PPM, Carbon Dioxide PPM, Methly PPM, Acetone PPM, Methane PPM, LPG PPM, Hydrogen PPM, Propane PPM, PM10 \n')
+    print("Logging to %s" % datafile, flush=True)
+
+    # Set commands for getting data from sensors
     MQ2cmd = 0x01
     MQ7cmd = 0x02
     MQ135cmd = 0x03
     PMcmd = 0x04
-    print " Sensly is warming up please wait for 15 mins"
-    sleep(900)
-    print " Heating Completed"
-    while True:
-        data = []
-        # Get current time and add data array
-        data.append(time.strftime('%H:%M:%S'))
 
-        # Reset the PPM value 
-        COPPM = 0
-        NH4PPM = 0
-        CO2PPM = 0
-        CO2H50HPPM = 0
-        CH3PPM = 0
-        CH3_2COPPM = 0
-        AlchPPM = 0
-        CH4PPM = 0
-        LPGPPM = 0
-        H2PPM = 0
-        PropPPM = 0
+    publisher = None
+    if args.mqtt:
+        from sensly_mqtt import SenslyMQTT
+        publisher = SenslyMQTT(load_mqtt_config(args.config))
+        publisher.connect()
 
-        # Inialise the gases in an array 
-        MQ2_Gases = [COPPM, CH4PPM, AlchPPM, H2PPM, PropPPM,LPGPPM]
-        MQ7_Gases = [AlchPPM, CH4PPM, LPGPPM, COPPM, H2PPM]
-        MQ135_Gases = [COPPM,NH4PPM,CO2PPM,CO2H50HPPM,CH3PPM,CH3_2COPPM]
+    try:
+        if args.warmup > 0:
+            print("Sensly is warming up, please wait %d minutes" % (args.warmup // 60), flush=True)
+            time.sleep(args.warmup)
+            print("Heating completed", flush=True)
 
-        # Fetch the current temperatire and humidity
-        temperature = sensor.read_temperature()
-        humidity = sensor.read_humidity()
+        while True:
+            reading = take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd)
 
-        # Correct the RS/R) ratio to account for temperature and humidity,
-        # Then calculate the PPM for each gas
-        MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2( MQ2cmd, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
-        Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
-        
-        MQ7Rs_R0 = MQ7.Corrected_RS_RO( MQ7cmd, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
-        Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
-        
-        MQ135Rs_R0 = MQ135.Corrected_RS_RO( MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
-        Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
-        
-        # Store the calculated gases in an array
-        data.append(MQ7_Gases[3])
-        data.append(MQ135_Gases[1])
-        data.append(MQ135_Gases[2])
-        data.append(MQ135_Gases[4])
-        data.append(MQ135_Gases[5])
-        data.append(MQ2_Gases[1])
-        data.append(MQ2_Gases[5])
-        data.append(MQ2_Gases[3])
-        data.append(MQ2_Gases[4])
-        
-        data.append(PM.Get_PMDensity(PMcmd))
+            # CSV row, same column order as the header line
+            data = [
+                time.strftime('%H:%M:%S'),
+                reading['co'], reading['nh3'], reading['co2'], reading['methyl'],
+                reading['acetone'], reading['methane'], reading['lpg'],
+                reading['hydrogen'], reading['propane'], reading['pm10'],
+            ]
+            with open(datafile, 'a') as f2:
+                f2.write(','.join(str(d) for d in data) + '\n')
+            mq7 = reading['mq7_ratio']
+            print("%s  T=%.1fC RH=%.0f%%  MQ2=%.3f MQ7=%s MQ135=%.3f  PM=%.1f"
+                  % (data[0], reading['temperature'], reading['humidity'],
+                     reading['mq2_ratio'], "%.3f" % mq7 if mq7 is not None else "warming",
+                     reading['mq135_ratio'], reading['pm10']), flush=True)
 
-        # Add the current array to the csv file 
-        with open(datafile, 'a') as f2:
-            f2.write(','.join(str(d) for d in data) + '\n')
-            
-        sleep(30)
-        
+            if publisher is not None:
+                publisher.publish(reading)
 
-except KeyboardInterrupt:
-    print "Bye"
-    
+            time.sleep(args.interval)
 
-    
-    
+    except KeyboardInterrupt:
+        print("Bye")
+    finally:
+        if publisher is not None:
+            publisher.close()
+
+
+if __name__ == "__main__":
+    main()

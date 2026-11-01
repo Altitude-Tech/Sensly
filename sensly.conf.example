@@ -1,0 +1,18 @@
+# Copy this file to sensly.conf and fill in your broker details.
+# Then run:  python3 Sensly.py --mqtt
+
+[mqtt]
+# IP address or hostname of the machine running Home Assistant / Mosquitto
+host = homeassistant.local
+port = 1883
+
+# A Home Assistant user account. The Mosquitto add-on authenticates MQTT
+# clients against Home Assistant users, so create one for the Pi under
+# Settings -> People -> Users (e.g. "sensly") and put it here.
+username =
+password =
+
+# Optional. Change device_id only if you run more than one Sensly HAT.
+device_id = sensly_hat
+device_name = Sensly HAT
+discovery_prefix = homeassistant

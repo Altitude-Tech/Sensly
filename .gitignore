@@ -1,0 +1,4 @@
+sensly.conf
+__pycache__/
+*.csv
+*.log

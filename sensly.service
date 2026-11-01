@@ -1,0 +1,23 @@
+# systemd unit to run the Sensly logger at boot and publish to Home Assistant.
+#
+#   sudo cp sensly.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now sensly
+#   journalctl -u sensly -f      # watch the output
+#
+# Adjust User and the paths if you did not clone to /home/pi/Sensly.
+
+[Unit]
+Description=Sensly HAT air quality logger
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/Sensly
+ExecStart=/usr/bin/python3 /home/pi/Sensly/Sensly.py --mqtt
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

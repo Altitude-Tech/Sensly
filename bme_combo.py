@@ -1,5 +1,5 @@
 # Edit made to orginal Adafruit Driver to enable it to use the SMBus module
-# instead of Adafruits i2c module.
+# instead of Adafruits i2c module. Ported to Python 3.
 # Editor: Sam Nwankwo
 # Copyright (c) 2014 Adafruit Industries
 # Author: Tony DiCola
@@ -107,18 +107,19 @@ class BME280(object):
         self._mode = mode
         # Create I2C device.
         if i2c is None:
-            import smbus as I2C
-            i2c = I2C.SMBus(1)
-        self._device = i2c#i2c.get_i2c_device(address, **kwargs)
+            from Sensors import get_bus
+            i2c = get_bus()
+        self._device = i2c
+        self._address = address
         # Load calibration values.
         self._load_calibration()
-        self._device.write_byte_data(address, BME280_REGISTER_CONTROL, 0x3F)
+        self._device.write_byte_data(self._address, BME280_REGISTER_CONTROL, 0x3F)
         self.t_fine = 0.0
         
     def _load_calibration(self):
-        cal1 = self._device.read_i2c_block_data(BME280_I2CADDR, 0x88, 24)
-        cal2 = self._device.read_i2c_block_data(BME280_I2CADDR, 0xA1, 1)
-        cal3 = self._device.read_i2c_block_data(BME280_I2CADDR, 0xE1, 7)
+        cal1 = self._device.read_i2c_block_data(self._address, 0x88, 24)
+        cal2 = self._device.read_i2c_block_data(self._address, 0xA1, 1)
+        cal3 = self._device.read_i2c_block_data(self._address, 0xE1, 7)
 
         # Convert byte data to word values
         self.dig_T1 = getUShort(cal1, 0)
@@ -148,37 +149,20 @@ class BME280(object):
         self.dig_H5 = self.dig_H5 | (getUChar(cal3, 4) >> 4 & 0x0F)
 
         self.dig_H6 = getChar(cal3, 6)
-        '''
-        print 'dig_T1 = {0:d}'.format (self.dig_T1)
-        print 'dig_T2 = {0:d}'.format (self.dig_T2)
-        print 'dig_T3 = {0:d}'.format (self.dig_T3)
-        '''
-        '''
-        print '0xE4 = {0:2x}'.format (self._device.readU8 (BME280_REGISTER_DIG_H4))
-        print '0xE5 = {0:2x}'.format (self._device.readU8 (BME280_REGISTER_DIG_H5))
-        print '0xE6 = {0:2x}'.format (self._device.readU8 (BME280_REGISTER_DIG_H6))
-
-        print 'dig_H1 = {0:d}'.format (self.dig_H1)
-        print 'dig_H2 = {0:d}'.format (self.dig_H2)
-        print 'dig_H3 = {0:d}'.format (self.dig_H3)
-        print 'dig_H4 = {0:d}'.format (self.dig_H4)
-        print 'dig_H5 = {0:d}'.format (self.dig_H5)
-        print 'dig_H6 = {0:d}'.format (self.dig_H6)
-        '''
         
     def read_raw_temp(self):
         """Reads the raw (uncompensated) temperature from the sensor."""
         meas = self._mode
-        self._device.write_byte_data(BME280_I2CADDR,BME280_REGISTER_CONTROL_HUM, meas)
+        self._device.write_byte_data(self._address,BME280_REGISTER_CONTROL_HUM, meas)
         meas = self._mode << 5 | self._mode << 2 | 1
-        self._device.write_byte_data(BME280_I2CADDR,BME280_REGISTER_CONTROL, meas)
+        self._device.write_byte_data(self._address,BME280_REGISTER_CONTROL, meas)
         sleep_time = 0.00125 + 0.0023 * (1 << self._mode)
         sleep_time = sleep_time + 0.0023 * (1 << self._mode) + 0.000575
         sleep_time = sleep_time + 0.0023 * (1 << self._mode) + 0.000575
         time.sleep(sleep_time)  # Wait the required time
-        msb = self._device.read_byte_data(BME280_I2CADDR,BME280_REGISTER_TEMP_DATA)
-        lsb = self._device.read_byte_data(BME280_I2CADDR,BME280_REGISTER_TEMP_DATA + 1)
-        xlsb = self._device.read_byte_data(BME280_I2CADDR,BME280_REGISTER_TEMP_DATA + 2)
+        msb = self._device.read_byte_data(self._address,BME280_REGISTER_TEMP_DATA)
+        lsb = self._device.read_byte_data(self._address,BME280_REGISTER_TEMP_DATA + 1)
+        xlsb = self._device.read_byte_data(self._address,BME280_REGISTER_TEMP_DATA + 2)
         raw = ((msb << 16) | (lsb << 8) | xlsb) >> 4
         return raw
     
@@ -186,17 +170,17 @@ class BME280(object):
         """Reads the raw (uncompensated) pressure level from the sensor."""
         """Assumes that the temperature has already been read """
         """i.e. that enough delay has been provided"""
-        msb = self._device.read_byte_data(BME280_I2CADDR,BME280_REGISTER_PRESSURE_DATA)
-        lsb = self._device.read_byte_data(BME280_I2CADDR,BME280_REGISTER_PRESSURE_DATA + 1)
-        xlsb = self._device.read_byte_data(BME280_I2CADDR,BME280_REGISTER_PRESSURE_DATA + 2)
+        msb = self._device.read_byte_data(self._address,BME280_REGISTER_PRESSURE_DATA)
+        lsb = self._device.read_byte_data(self._address,BME280_REGISTER_PRESSURE_DATA + 1)
+        xlsb = self._device.read_byte_data(self._address,BME280_REGISTER_PRESSURE_DATA + 2)
         raw = ((msb << 16) | (lsb << 8) | xlsb) >> 4
         return raw 
     
     def read_raw_humidity(self):
         """Assumes that the temperature has already been read """
         """i.e. that enough delay has been provided"""
-        msb = self._device.read_byte_data(BME280_I2CADDR,BME280_REGISTER_HUMIDITY_DATA)
-        lsb = self._device.read_byte_data(BME280_I2CADDR,BME280_REGISTER_HUMIDITY_DATA + 1)
+        msb = self._device.read_byte_data(self._address,BME280_REGISTER_HUMIDITY_DATA)
+        lsb = self._device.read_byte_data(self._address,BME280_REGISTER_HUMIDITY_DATA + 1)
         raw = (msb << 8) | lsb
         return raw
 
@@ -209,13 +193,6 @@ class BME280(object):
         UT / 131072.0 - self.dig_T1 / 8192.0)) * float(self.dig_T3)
         self.t_fine = int(var1 + var2)
         temp = ((var1 + var2) / 5120.0) - 9.3647 - 1.268279
-        return temp
-    def read_temperature2(self):
-        UT = float(self.read_raw_temp())
-        var1 = (((UT>>3) - (float(self.dig_T1<<1))) * float(self.dig_T2)) >> 11
-        var2 = (((((UT>>4) - (float(self.dig_T1))) * ((UT>>4)-float(self.dig_T1))) >> 12) * float(self.dig_T3)) >> 14
-        t_fine = var1 + var2
-        temp = (float((t_fine * 5 + 128) >> 8))/100
         return temp
     def read_pressure(self):
         """Gets the compensated pressure in Pascals."""
