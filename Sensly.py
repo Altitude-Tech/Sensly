@@ -244,8 +244,17 @@ def Get_MQ135PPM(MQ135Rs_R0, Gases):
         Gases[5] = MQ135_Acet.Get_PPM(MQ135Rs_R0)
 
 
+# The MQ7 heater is cycled by the HAT firmware (high heat to clean the
+# sensor, then low heat to measure). During the high-heat phase the sensor
+# reads almost zero, giving an RS/R0 ratio in the tens of thousands. Ratios
+# above this limit are treated as invalid and the last good value is kept.
+MQ7_MAX_VALID_RATIO = 1000.0
+_last_valid_mq7 = None
+
+
 def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd):
     """Read every sensor once and return a dict of calculated values."""
+    global _last_valid_mq7
     # Initialise the gases in an array (all PPM values start at 0)
     MQ2_Gases = [0, 0, 0, 0, 0, 0]      # CO, CH4, Alcohol, H2, Propane, LPG
     MQ7_Gases = [0, 0, 0, 0, 0]         # Alcohol, CH4, LPG, CO, H2
@@ -262,7 +271,13 @@ def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd):
     Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
 
     MQ7Rs_R0 = MQ7.Corrected_RS_RO(MQ7cmd, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
-    Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
+    if MQ7Rs_R0 > MQ7_MAX_VALID_RATIO:
+        # Heater in its high phase: hold the previous valid reading
+        MQ7Rs_R0 = _last_valid_mq7
+    else:
+        _last_valid_mq7 = MQ7Rs_R0
+    if MQ7Rs_R0 is not None:
+        Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
 
     MQ135Rs_R0 = MQ135.Corrected_RS_RO(MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
     Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
@@ -284,7 +299,7 @@ def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd):
         'propane': round(MQ2_Gases[4], 2),
         'pm10': round(pm10, 2),
         'mq2_ratio': round(MQ2Rs_R0, 4),
-        'mq7_ratio': round(MQ7Rs_R0, 4),
+        'mq7_ratio': round(MQ7Rs_R0, 4) if MQ7Rs_R0 is not None else None,
         'mq135_ratio': round(MQ135Rs_R0, 4),
     }
 
@@ -365,10 +380,11 @@ def main():
             ]
             with open(datafile, 'a') as f2:
                 f2.write(','.join(str(d) for d in data) + '\n')
-            print("%s  T=%.1fC RH=%.0f%%  MQ2=%.3f MQ7=%.3f MQ135=%.3f  PM=%.1f"
+            mq7 = reading['mq7_ratio']
+            print("%s  T=%.1fC RH=%.0f%%  MQ2=%.3f MQ7=%s MQ135=%.3f  PM=%.1f"
                   % (data[0], reading['temperature'], reading['humidity'],
-                     reading['mq2_ratio'], reading['mq7_ratio'], reading['mq135_ratio'],
-                     reading['pm10']), flush=True)
+                     reading['mq2_ratio'], "%.3f" % mq7 if mq7 is not None else "warming",
+                     reading['mq135_ratio'], reading['pm10']), flush=True)
 
             if publisher is not None:
                 publisher.publish(reading)
