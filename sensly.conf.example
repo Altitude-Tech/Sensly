@@ -16,3 +16,22 @@ password =
 device_id = sensly_hat
 device_name = Sensly HAT
 discovery_prefix = homeassistant
+
+[calibration]
+# Added to the BME280 readings. The BME280 sits next to three heated gas
+# sensors and reads warm, so the temperature offset is normally negative.
+# Compare against a trusted thermometer in the same room once the HAT has
+# been running for an hour, and set the difference here.
+temperature_offset = -10.6
+humidity_offset = 0
+
+[sensors]
+# The Sensly HAT has a "PM 2.5 Header" for an optional particulate sensor.
+# Set to no if nothing is plugged into it, otherwise PM10 always reads 0.
+pm_attached = yes
+
+# Written automatically by Sensly_Calibration.py. Leave out to use the
+# built-in defaults, which came from the original author's board.
+# r0_mq2 = 3120.5
+# r0_mq7 = 1258.9
+# r0_mq135 = 2786.3
