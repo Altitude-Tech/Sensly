@@ -5,7 +5,7 @@ set -e
 
 echo "==> Installing Python dependencies"
 sudo apt-get update
-sudo apt-get install -y python3 python3-smbus python3-gpiozero i2c-tools
+sudo apt-get install -y python3 python3-smbus python3-gpiozero python3-paho-mqtt i2c-tools
 # smbus2 is preferred when available; fall back silently to python3-smbus
 sudo apt-get install -y python3-smbus2 2>/dev/null || true
 

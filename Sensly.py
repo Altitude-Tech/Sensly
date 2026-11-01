@@ -8,9 +8,13 @@ Usage:
     python3 Sensly.py                 # 15 minute warm-up, sample every 30 s
     python3 Sensly.py --warmup 0      # skip warm-up (readings will be off)
     python3 Sensly.py --interval 10   # sample every 10 s
+    python3 Sensly.py --mqtt          # also publish to Home Assistant via MQTT
+                                      # (broker settings in sensly.conf)
 """
 
 import argparse
+import configparser
+import os
 import sys
 import time
 
@@ -240,6 +244,72 @@ def Get_MQ135PPM(MQ135Rs_R0, Gases):
         Gases[5] = MQ135_Acet.Get_PPM(MQ135Rs_R0)
 
 
+def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd):
+    """Read every sensor once and return a dict of calculated values."""
+    # Initialise the gases in an array (all PPM values start at 0)
+    MQ2_Gases = [0, 0, 0, 0, 0, 0]      # CO, CH4, Alcohol, H2, Propane, LPG
+    MQ7_Gases = [0, 0, 0, 0, 0]         # Alcohol, CH4, LPG, CO, H2
+    MQ135_Gases = [0, 0, 0, 0, 0, 0]    # CO, NH4, CO2, Ethanol, Methly, Acetone
+
+    # Fetch the current temperature, humidity and pressure
+    temperature = sensor.read_temperature()
+    humidity = sensor.read_humidity()
+    pressure = sensor.read_pressure() / 100.0   # Pa -> hPa
+
+    # Correct the RS/R0 ratio to account for temperature and humidity,
+    # then calculate the PPM for each gas
+    MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2(MQ2cmd, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
+    Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
+
+    MQ7Rs_R0 = MQ7.Corrected_RS_RO(MQ7cmd, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
+    Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
+
+    MQ135Rs_R0 = MQ135.Corrected_RS_RO(MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
+    Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
+
+    pm10 = PM.Get_PMDensity(PMcmd)
+
+    return {
+        'temperature': round(temperature, 2),
+        'humidity': round(humidity, 1),
+        'pressure': round(pressure, 1),
+        'co': round(MQ7_Gases[3], 2),
+        'nh3': round(MQ135_Gases[1], 2),
+        'co2': round(MQ135_Gases[2], 2),
+        'methyl': round(MQ135_Gases[4], 2),
+        'acetone': round(MQ135_Gases[5], 2),
+        'methane': round(MQ2_Gases[1], 2),
+        'lpg': round(MQ2_Gases[5], 2),
+        'hydrogen': round(MQ2_Gases[3], 2),
+        'propane': round(MQ2_Gases[4], 2),
+        'pm10': round(pm10, 2),
+        'mq2_ratio': round(MQ2Rs_R0, 4),
+        'mq7_ratio': round(MQ7Rs_R0, 4),
+        'mq135_ratio': round(MQ135Rs_R0, 4),
+    }
+
+
+def load_mqtt_config(path):
+    """Read the [mqtt] section of the config file into a dict."""
+    if not os.path.exists(path):
+        sys.exit("MQTT config file not found: %s\n"
+                 "Copy sensly.conf.example to sensly.conf and fill in your broker details." % path)
+    parser = configparser.ConfigParser()
+    parser.read(path)
+    if 'mqtt' not in parser:
+        sys.exit("No [mqtt] section in %s" % path)
+    section = parser['mqtt']
+    return {
+        'host': section.get('host', 'homeassistant.local'),
+        'port': section.getint('port', 1883),
+        'username': section.get('username', '') or None,
+        'password': section.get('password', '') or None,
+        'device_id': section.get('device_id', 'sensly_hat'),
+        'device_name': section.get('device_name', 'Sensly HAT'),
+        'discovery_prefix': section.get('discovery_prefix', 'homeassistant'),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Log air-quality data from the Sensly HAT to a CSV file.")
     parser.add_argument("--warmup", type=int, default=900,
@@ -248,6 +318,10 @@ def main():
                         help="seconds between samples (default: 30)")
     parser.add_argument("--output", default=None,
                         help="CSV file to write (default: ./Sensly_<date>_<time>.csv)")
+    parser.add_argument("--mqtt", action="store_true",
+                        help="publish readings to Home Assistant over MQTT (see sensly.conf)")
+    parser.add_argument("--config", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "sensly.conf"),
+                        help="config file with MQTT broker settings (default: sensly.conf next to this script)")
     args = parser.parse_args()
 
     Reset()
@@ -267,6 +341,12 @@ def main():
     MQ135cmd = 0x03
     PMcmd = 0x04
 
+    publisher = None
+    if args.mqtt:
+        from sensly_mqtt import SenslyMQTT
+        publisher = SenslyMQTT(load_mqtt_config(args.config))
+        publisher.connect()
+
     try:
         if args.warmup > 0:
             print("Sensly is warming up, please wait %d minutes" % (args.warmup // 60), flush=True)
@@ -274,53 +354,32 @@ def main():
             print("Heating completed", flush=True)
 
         while True:
-            data = []
-            # Get current time and add data array
-            data.append(time.strftime('%H:%M:%S'))
+            reading = take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd)
 
-            # Initialise the gases in an array (all PPM values start at 0)
-            MQ2_Gases = [0, 0, 0, 0, 0, 0]      # CO, CH4, Alcohol, H2, Propane, LPG
-            MQ7_Gases = [0, 0, 0, 0, 0]         # Alcohol, CH4, LPG, CO, H2
-            MQ135_Gases = [0, 0, 0, 0, 0, 0]    # CO, NH4, CO2, Ethanol, Methly, Acetone
-
-            # Fetch the current temperature and humidity
-            temperature = sensor.read_temperature()
-            humidity = sensor.read_humidity()
-
-            # Correct the RS/R0 ratio to account for temperature and humidity,
-            # then calculate the PPM for each gas
-            MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2(MQ2cmd, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
-            Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
-
-            MQ7Rs_R0 = MQ7.Corrected_RS_RO(MQ7cmd, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
-            Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
-
-            MQ135Rs_R0 = MQ135.Corrected_RS_RO(MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
-            Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
-
-            # Store the calculated gases in an array
-            data.append(MQ7_Gases[3])
-            data.append(MQ135_Gases[1])
-            data.append(MQ135_Gases[2])
-            data.append(MQ135_Gases[4])
-            data.append(MQ135_Gases[5])
-            data.append(MQ2_Gases[1])
-            data.append(MQ2_Gases[5])
-            data.append(MQ2_Gases[3])
-            data.append(MQ2_Gases[4])
-
-            data.append(PM.Get_PMDensity(PMcmd))
-
-            # Add the current array to the csv file
+            # CSV row, same column order as the header line
+            data = [
+                time.strftime('%H:%M:%S'),
+                reading['co'], reading['nh3'], reading['co2'], reading['methyl'],
+                reading['acetone'], reading['methane'], reading['lpg'],
+                reading['hydrogen'], reading['propane'], reading['pm10'],
+            ]
             with open(datafile, 'a') as f2:
                 f2.write(','.join(str(d) for d in data) + '\n')
             print("%s  T=%.1fC RH=%.0f%%  MQ2=%.3f MQ7=%.3f MQ135=%.3f  PM=%.1f"
-                  % (data[0], temperature, humidity, MQ2Rs_R0, MQ7Rs_R0, MQ135Rs_R0, data[-1]), flush=True)
+                  % (data[0], reading['temperature'], reading['humidity'],
+                     reading['mq2_ratio'], reading['mq7_ratio'], reading['mq135_ratio'],
+                     reading['pm10']), flush=True)
+
+            if publisher is not None:
+                publisher.publish(reading)
 
             time.sleep(args.interval)
 
     except KeyboardInterrupt:
         print("Bye")
+    finally:
+        if publisher is not None:
+            publisher.close()
 
 
 if __name__ == "__main__":

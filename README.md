@@ -18,8 +18,8 @@ OS Bookworm and later. Works on the Raspberry Pi 4 (and other 40-pin models).
    sudo reboot
    ```
 
-   The installer installs `python3-smbus`, `python3-gpiozero` and
-   `i2c-tools`, enables the I2C interface and adds your user to the `i2c`
+   The installer installs `python3-smbus`, `python3-gpiozero`,
+   `python3-paho-mqtt` and `i2c-tools`, enables the I2C interface and adds your user to the `i2c`
    and `gpio` groups.
 
 3. After the reboot, confirm the HAT is detected:
@@ -49,6 +49,8 @@ Options:
 | `--warmup SECONDS` | 900 | Heat-up time before logging. Use `0` for a quick test. |
 | `--interval SECONDS` | 30 | Time between samples. |
 | `--output FILE` | auto | CSV file to write. |
+| `--mqtt` | off | Also publish to Home Assistant over MQTT. |
+| `--config FILE` | sensly.conf | MQTT settings file. |
 
 ## Calibrating
 
@@ -62,32 +64,52 @@ It warms up for 10 minutes, then prints and logs a running R0 estimate for
 each sensor. Let it run until the values settle, press Ctrl-C, and copy the
 printed `R0 = [...]` line into the `R0` list near the top of `Sensly.py`.
 
-## Running at boot (optional)
+## Home Assistant
 
-Create `/etc/systemd/system/sensly.service`:
+The logger can publish every reading to Home Assistant over MQTT. It uses
+MQTT discovery, so the sensors appear on their own under a "Sensly HAT"
+device with the right units and icons. No Home Assistant configuration
+changes are needed beyond having the Mosquitto broker add-on and the MQTT
+integration installed.
 
-```ini
-[Unit]
-Description=Sensly air quality logger
-After=multi-user.target
+1. In Home Assistant, create a user for the Pi under Settings -> People ->
+   Users (for example `sensly`). The Mosquitto add-on uses Home Assistant
+   users for MQTT logins.
+2. On the Pi, create the config file and fill in the broker address and
+   that login:
 
-[Service]
-User=pi
-WorkingDirectory=/home/pi/sensly
-ExecStart=/usr/bin/python3 /home/pi/sensly/Sensly.py
-Restart=on-failure
+   ```bash
+   cp sensly.conf.example sensly.conf
+   nano sensly.conf
+   ```
 
-[Install]
-WantedBy=multi-user.target
-```
+3. Run with the `--mqtt` flag:
 
-Then:
+   ```bash
+   python3 Sensly.py --mqtt
+   ```
+
+Within a few seconds the device appears under Settings -> Devices &
+Services -> MQTT. Entities are named `sensor.sensly_hat_temperature`,
+`sensor.sensly_hat_co2`, `sensor.sensly_hat_pm10` and so on. The raw RS/R0
+ratios are included as diagnostic entities for calibration checks.
+Readings expire after 10 minutes without an update, so the entities show
+as unavailable if the Pi stops.
+
+## Running at boot
+
+A systemd unit is included. If you cloned to `/home/pi/Sensly`:
 
 ```bash
-sudo systemctl enable --now sensly.service
+sudo cp sensly.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sensly
 ```
 
-Adjust `User` and the paths to match where you cloned the repository.
+Watch the output with `journalctl -u sensly -f`. Edit the `User`,
+`WorkingDirectory` and `ExecStart` lines in the unit file first if your
+path or username differ, and drop `--mqtt` from `ExecStart` if you only
+want CSV logging.
 
 ## Troubleshooting
 
