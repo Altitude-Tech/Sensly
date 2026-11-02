@@ -93,40 +93,44 @@ def main():
 
         while args.duration <= 0 or time.monotonic() - started < args.duration:
             AvRs_MQ2 = AvRs_MQ7 = AvRs_MQ135 = 0.0
-            valid_mq7 = 0
+            valid = 0
 
             for _ in range(Cal_Sample_Time):
-                AvRs_MQ2 += MQ2.Get_RS(MQ2cmd)
+                rs2 = MQ2.Get_RS(MQ2cmd)
                 time.sleep(0.01)
                 rs7 = MQ7.Get_RS(MQ7cmd)
-                # Skip MQ7 samples taken during its heater's high phase
+                time.sleep(0.01)
+                rs135 = MQ135.Get_RS(MQ135cmd)
+                time.sleep(0.01)
+                # Only keep samples from the MQ7 heater's low phase. In the
+                # high phase MQ7 reads near zero and the extra heater current
+                # sags the 5 V rail, shifting the MQ2 and MQ135 readings too.
                 if rs7 < 1e7:
+                    AvRs_MQ2 += rs2
                     AvRs_MQ7 += rs7
-                    valid_mq7 += 1
-                time.sleep(0.01)
-                AvRs_MQ135 += MQ135.Get_RS(MQ135cmd)
-                time.sleep(0.01)
+                    AvRs_MQ135 += rs135
+                    valid += 1
 
-            AvRs_MQ2 /= Cal_Sample_Time
-            AvRs_MQ135 /= Cal_Sample_Time
-            AvRs_MQ7 = AvRs_MQ7 / valid_mq7 if valid_mq7 else None
+            if not valid:
+                continue
+            AvRs_MQ2 /= valid
+            AvRs_MQ7 /= valid
+            AvRs_MQ135 /= valid
 
             # Cumulative running average of R0 = RS_air / (RS/R0 in clean air)
             windows += 1
             new2 = AvRs_MQ2 / MQ2.RSAIR
+            new7 = AvRs_MQ7 / MQ7.RSAIR
             new135 = AvRs_MQ135 / MQ135.RSAIR
             r0_mq2 = new2 if r0_mq2 is None else r0_mq2 + (new2 - r0_mq2) / windows
+            r0_mq7 = new7 if r0_mq7 is None else r0_mq7 + (new7 - r0_mq7) / windows
             r0_mq135 = new135 if r0_mq135 is None else r0_mq135 + (new135 - r0_mq135) / windows
-            if AvRs_MQ7 is not None:
-                new7 = AvRs_MQ7 / MQ7.RSAIR
-                r0_mq7 = new7 if r0_mq7 is None else r0_mq7 + (new7 - r0_mq7) / windows
 
             now = time.strftime('%H:%M:%S')
             with open(datafile, 'a') as f2:
                 f2.write('%s,%s,%s,%s\n' % (now, r0_mq2, r0_mq7, r0_mq135))
-            print("%s  R0: MQ2=%.1f MQ7=%s MQ135=%.1f"
-                  % (now, r0_mq2, "%.1f" % r0_mq7 if r0_mq7 is not None else "waiting", r0_mq135),
-                  flush=True)
+            print("%s  R0: MQ2=%.1f MQ7=%.1f MQ135=%.1f  (%d of %d samples in MQ7 low phase)"
+                  % (now, r0_mq2, r0_mq7, r0_mq135, valid, Cal_Sample_Time), flush=True)
 
     except KeyboardInterrupt:
         print("Stopped early", flush=True)

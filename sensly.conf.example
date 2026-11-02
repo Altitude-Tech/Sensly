@@ -35,3 +35,12 @@ pm_attached = yes
 # r0_mq2 = 3120.5
 # r0_mq7 = 1258.9
 # r0_mq135 = 2786.3
+
+# CO2 reference anchor. The original MQ135 lookup table only reports CO2
+# once the air is already stale and shows 0 in clean air. Setting both of
+# these switches to a curve anchored to a trusted CO2 meter: note the MQ135
+# RS/R0 ratio (sensor.sensly_hat_mq135_rs_r0 in Home Assistant, averaged
+# over a few minutes) at the same time the reference meter reads co2_ref_ppm.
+# co2_ref_ppm = 440
+# co2_ref_ratio = 2.72
+# co2_exponent = -2.7979
