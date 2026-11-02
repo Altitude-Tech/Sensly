@@ -354,6 +354,15 @@ DEFAULT_TEMPERATURE_OFFSET = -10.633
 DEFAULT_HUMIDITY_OFFSET = 0.0
 
 
+def system_uptime():
+    """Seconds since the Pi booted (0 if unknown)."""
+    try:
+        with open('/proc/uptime') as f:
+            return float(f.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return 0.0
+
+
 def load_config(path, need_mqtt=False):
     """Read sensly.conf. Missing file or sections fall back to defaults."""
     parser = configparser.ConfigParser()
@@ -406,7 +415,8 @@ def load_config(path, need_mqtt=False):
 def main():
     parser = argparse.ArgumentParser(description="Log air-quality data from the Sensly HAT to a CSV file.")
     parser.add_argument("--warmup", type=int, default=900,
-                        help="seconds to let the MQ sensors heat up before logging (default: 900)")
+                        help="seconds the MQ sensors need to heat up after power-on (default: 900); "
+                             "time the Pi has already been up is credited, so a restart does not wait again")
     parser.add_argument("--interval", type=float, default=30,
                         help="seconds between samples (default: 30)")
     parser.add_argument("--output", default=None,
@@ -447,14 +457,20 @@ def main():
         publisher = SenslyMQTT(config['mqtt'], include_pm=config['pm_attached'])
         publisher.connect()
 
+    # The MQ heaters run from the HAT's 5 V rail whenever the Pi is powered,
+    # so they only need the warm-up after a power cycle, not after a restart
+    # of this script. Credit the time the Pi has already been up.
+    warmup = max(0, args.warmup - int(system_uptime()))
     started = time.monotonic()
-    warm = args.warmup <= 0
+    warm = warmup <= 0
     if not warm:
-        print("Sensly is warming up, gas readings start in %d minutes" % (args.warmup // 60), flush=True)
+        print("Sensly is warming up, gas readings start in %d minutes" % (warmup // 60), flush=True)
+    elif args.warmup > 0:
+        print("Pi has been up longer than the warm-up time, skipping warm-up", flush=True)
 
     try:
         while True:
-            if not warm and time.monotonic() - started >= args.warmup:
+            if not warm and time.monotonic() - started >= warmup:
                 warm = True
                 print("Heating completed", flush=True)
 

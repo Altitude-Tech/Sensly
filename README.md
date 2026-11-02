@@ -37,8 +37,10 @@ OS Bookworm and later. Works on the Raspberry Pi 4 (and other 40-pin models).
 python3 Sensly.py
 ```
 
-The MQ sensors need to heat up, so the script waits 15 minutes before it
-starts logging. Readings are written every 30 seconds to
+The MQ sensors need to heat up after a power cycle, so the script waits 15
+minutes before logging gases. The heaters stay powered as long as the Pi is
+on, so a restart of the script after the Pi has been up that long skips the
+wait. Readings are written every 30 seconds to
 `Sensly_<date>_<time>.csv` in the current directory and echoed to the
 terminal. Press Ctrl-C to stop.
 
