@@ -302,22 +302,31 @@ def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd, config, warm=True):
 
     if MQ7Rs_R0 > MQ7_MAX_VALID_RATIO:
         # MQ7 heater in its high phase: hold the previous low-phase readings
-        MQ7Rs_R0 = _last_valid_mq7
-        if _last_valid_mq2 is not None:
+        if _last_valid_mq7 is None:
+            # No low-phase sample seen yet (just started): the MQ2 and
+            # MQ135 values are from the sagged supply, so report nothing
+            # rather than publish a spike.
+            warm = False
+            MQ7Rs_R0 = None
+            MQ2Rs_R0 = None
+            MQ135Rs_R0 = None
+        else:
+            MQ7Rs_R0 = _last_valid_mq7
             MQ2Rs_R0 = _last_valid_mq2
-        if _last_valid_mq135 is not None:
             MQ135Rs_R0 = _last_valid_mq135
     else:
         _last_valid_mq7 = MQ7Rs_R0
         _last_valid_mq2 = MQ2Rs_R0
         _last_valid_mq135 = MQ135Rs_R0
 
-    Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
+    if MQ2Rs_R0 is not None:
+        Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
     if MQ7Rs_R0 is not None:
         Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
-    Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
-    if config['co2_ref_ratio']:
-        MQ135_Gases[2] = co2_from_reference(MQ135Rs_R0, config)
+    if MQ135Rs_R0 is not None:
+        Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
+        if config['co2_ref_ratio']:
+            MQ135_Gases[2] = co2_from_reference(MQ135Rs_R0, config)
 
     pm10 = PM.Get_PMDensity(PMcmd) if config['pm_attached'] else None
 
@@ -337,9 +346,9 @@ def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd, config, warm=True):
         'lpg': gas(MQ2_Gases[5]),
         'hydrogen': gas(MQ2_Gases[3]),
         'propane': gas(MQ2_Gases[4]),
-        'mq2_ratio': round(MQ2Rs_R0, 4),
+        'mq2_ratio': round(MQ2Rs_R0, 4) if MQ2Rs_R0 is not None else None,
         'mq7_ratio': round(MQ7Rs_R0, 4) if MQ7Rs_R0 is not None else None,
-        'mq135_ratio': round(MQ135Rs_R0, 4),
+        'mq135_ratio': round(MQ135Rs_R0, 4) if MQ135Rs_R0 is not None else None,
     }
     if config['pm_attached']:
         reading['pm10'] = round(pm10, 2) if warm else None
@@ -477,7 +486,7 @@ def main():
             reading = take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd, config, warm)
             now = time.strftime('%H:%M:%S')
 
-            if warm:
+            if warm and reading['co'] is not None:
                 # CSV row, same column order as the header line
                 data = [
                     now,
@@ -488,11 +497,11 @@ def main():
                 with open(datafile, 'a') as f2:
                     f2.write(','.join(str(d) for d in data) + '\n')
 
-            mq7 = reading['mq7_ratio']
-            print("%s  T=%.1fC RH=%.0f%%  MQ2=%.3f MQ7=%s MQ135=%.3f%s"
+            def fmt(value):
+                return "%.3f" % value if value is not None else "waiting"
+            print("%s  T=%.1fC RH=%.0f%%  MQ2=%s MQ7=%s MQ135=%s%s"
                   % (now, reading['temperature'], reading['humidity'],
-                     reading['mq2_ratio'], "%.3f" % mq7 if mq7 is not None else "warming",
-                     reading['mq135_ratio'],
+                     fmt(reading['mq2_ratio']), fmt(reading['mq7_ratio']), fmt(reading['mq135_ratio']),
                      "  PM=%s" % reading['pm10'] if 'pm10' in reading else ""), flush=True)
 
             if publisher is not None:
