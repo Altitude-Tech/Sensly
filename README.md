@@ -70,6 +70,31 @@ cooking, smoke, solvents and people breathing on it. The script warms up for
 The logger reads them from there on its next start. Repeat every few months,
 as MQ sensors drift with age.
 
+## CO2 against a reference meter
+
+The original MQ135 lookup table only produces a CO2 figure once the air is
+already stale, and reports 0 in clean air. If you have a trusted CO2 meter
+(an NDIR sensor such as an AirGradient or Aranet), anchor the Sensly to it:
+note the MQ135 RS/R0 ratio (`sensor.sensly_hat_mq135_rs_r0`, averaged over
+a few minutes) at the same moment the reference meter reads a stable value,
+and put both under `[calibration]` in `sensly.conf`:
+
+```ini
+co2_ref_ppm = 440
+co2_ref_ratio = 2.72
+```
+
+CO2 then follows the datasheet curve across the whole range, scaled so that
+ratio reads as that many ppm. Re-anchor after each R0 calibration.
+
+## MQ7 heater cycle
+
+The HAT cycles the MQ7 heater between high and low power. During the high
+phase MQ7 cannot be read, and the extra current pulls the 5 V rail down
+enough to shift the MQ2 and MQ135 readings as well, especially on jumper
+wires. The logger and the calibration script only use samples from the low
+phase and hold the previous values during the high phase.
+
 ## Temperature and humidity offsets
 
 The BME280 sits next to three heated gas sensors and reads warm. The

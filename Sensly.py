@@ -249,8 +249,33 @@ def Get_MQ135PPM(MQ135Rs_R0, Gases):
 # sensor, then low heat to measure). During the high-heat phase the sensor
 # reads almost zero, giving an RS/R0 ratio in the tens of thousands. Ratios
 # above this limit are treated as invalid and the last good value is kept.
+#
+# The extra heater current in that phase also pulls the HAT's 5 V rail down
+# slightly (noticeably so on jumper wires), which shifts the MQ2 and MQ135
+# readings. Their values from the previous low-heat sample are held too, so
+# every reported ratio comes from the same, quieter supply condition.
 MQ7_MAX_VALID_RATIO = 1000.0
 _last_valid_mq7 = None
+_last_valid_mq2 = None
+_last_valid_mq135 = None
+
+# Default exponent of the MQ135 CO2 curve (slope of the datasheet's log-log
+# line). Used by the reference-anchored CO2 conversion, see co2_ref_* in
+# sensly.conf.
+DEFAULT_CO2_EXPONENT = -2.7979
+
+
+def co2_from_reference(ratio, config):
+    """CO2 in ppm from the MQ135 ratio, anchored to a reference reading.
+
+    ppm = ref_ppm * (ratio / ref_ratio) ** exponent, where ref_ratio is the
+    MQ135 RS/R0 ratio observed when a trusted CO2 meter read ref_ppm.
+    Unlike the original lookup table this works across the whole range, so
+    clean air reports a realistic 400-500 ppm instead of 0.
+    """
+    if ratio <= 0:
+        return 0.0
+    return config['co2_ref_ppm'] * pow(ratio / config['co2_ref_ratio'], config['co2_exponent'])
 
 
 def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd, config, warm=True):
@@ -258,7 +283,7 @@ def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd, config, warm=True):
 
     While warm is False (sensors still heating) the gas values are None.
     """
-    global _last_valid_mq7
+    global _last_valid_mq7, _last_valid_mq2, _last_valid_mq135
     # Initialise the gases in an array (all PPM values start at 0)
     MQ2_Gases = [0, 0, 0, 0, 0, 0]      # CO, CH4, Alcohol, H2, Propane, LPG
     MQ7_Gases = [0, 0, 0, 0, 0]         # Alcohol, CH4, LPG, CO, H2
@@ -272,19 +297,27 @@ def take_reading(sensor, MQ2cmd, MQ7cmd, MQ135cmd, PMcmd, config, warm=True):
     # Correct the RS/R0 ratio to account for temperature and humidity,
     # then calculate the PPM for each gas
     MQ2Rs_R0 = MQ2.Corrected_RS_RO_MQ2(MQ2cmd, temperature, humidity, MQ2_t_30H, MQ2_t_60H, MQ2_t_85H)
-    Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
-
     MQ7Rs_R0 = MQ7.Corrected_RS_RO(MQ7cmd, temperature, humidity, MQ7_t_33H, MQ7_t_85H)
+    MQ135Rs_R0 = MQ135.Corrected_RS_RO(MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
+
     if MQ7Rs_R0 > MQ7_MAX_VALID_RATIO:
-        # Heater in its high phase: hold the previous valid reading
+        # MQ7 heater in its high phase: hold the previous low-phase readings
         MQ7Rs_R0 = _last_valid_mq7
+        if _last_valid_mq2 is not None:
+            MQ2Rs_R0 = _last_valid_mq2
+        if _last_valid_mq135 is not None:
+            MQ135Rs_R0 = _last_valid_mq135
     else:
         _last_valid_mq7 = MQ7Rs_R0
+        _last_valid_mq2 = MQ2Rs_R0
+        _last_valid_mq135 = MQ135Rs_R0
+
+    Get_MQ2PPM(MQ2Rs_R0, MQ2_Gases)
     if MQ7Rs_R0 is not None:
         Get_MQ7PPM(MQ7Rs_R0, MQ7_Gases)
-
-    MQ135Rs_R0 = MQ135.Corrected_RS_RO(MQ135cmd, temperature, humidity, MQ135_t_33H, MQ135_t_85H)
     Get_MQ135PPM(MQ135Rs_R0, MQ135_Gases)
+    if config['co2_ref_ratio']:
+        MQ135_Gases[2] = co2_from_reference(MQ135Rs_R0, config)
 
     pm10 = PM.Get_PMDensity(PMcmd) if config['pm_attached'] else None
 
@@ -362,6 +395,10 @@ def load_config(path, need_mqtt=False):
         'r0_mq2': getfloat(cal, 'r0_mq2', R0[0]),
         'r0_mq7': getfloat(cal, 'r0_mq7', R0[1]),
         'r0_mq135': getfloat(cal, 'r0_mq135', R0[2]),
+        # CO2 reference anchor: both must be set to enable the reference curve
+        'co2_ref_ppm': getfloat(cal, 'co2_ref_ppm', 0),
+        'co2_ref_ratio': getfloat(cal, 'co2_ref_ratio', 0),
+        'co2_exponent': getfloat(cal, 'co2_exponent', DEFAULT_CO2_EXPONENT),
         'pm_attached': getbool(sensors, 'pm_attached', 'yes'),
     }
 
